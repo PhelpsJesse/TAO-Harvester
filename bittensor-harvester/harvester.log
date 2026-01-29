@@ -1,0 +1,79 @@
+2026-01-28 09:45:34,296 [INFO] src.main - ============================================================
+2026-01-28 09:45:34,296 [INFO] src.main - Starting harvest cycle
+2026-01-28 09:45:34,296 [INFO] src.main - ============================================================
+2026-01-28 09:45:34,321 [INFO] src.main - Run ID: 1
+2026-01-28 09:45:34,321 [INFO] src.main - Fetching chain state...
+2026-01-28 09:45:34,321 [INFO] src.main - Current block: 12345
+2026-01-28 09:45:34,321 [INFO] src.main - Current alpha balance: 100.000000000000
+2026-01-28 09:45:34,321 [INFO] src.main - Alpha earned (delta): 100.000000000000
+2026-01-28 09:45:34,324 [INFO] src.main - Planning harvest...
+2026-01-28 09:45:34,325 [INFO] src.main - Total accumulated: 100.000000000000 alpha
+2026-01-28 09:45:34,325 [INFO] src.main - Harvestable (50%): 50.000000000000 alpha
+2026-01-28 09:45:34,334 [INFO] src.main - Executing harvest 1...
+2026-01-28 09:45:34,339 [INFO] src.main - TX Hash: 0x0000000000000000000000000000000000000000000000000000000000000000
+2026-01-28 09:45:34,339 [INFO] src.main - Checking Kraken balances...
+2026-01-28 09:45:34,339 [INFO] src.main - Kraken TAO balance: 10.500000000000
+2026-01-28 09:45:34,339 [INFO] src.main - Kraken USD balance: 250.75
+2026-01-28 09:45:34,339 [INFO] src.main - Checking withdrawal eligibility...
+2026-01-28 09:45:34,339 [INFO] src.main - Exporting tax CSVs...
+2026-01-28 09:45:34,342 [INFO] src.main -   rewards: rewards.csv
+2026-01-28 09:45:34,342 [INFO] src.main -   harvests: harvest.csv
+2026-01-28 09:45:34,342 [INFO] src.main -   sales: sales.csv
+2026-01-28 09:45:34,342 [INFO] src.main -   withdrawals: withdrawals.csv
+2026-01-28 09:45:34,345 [INFO] src.main - Harvest cycle completed successfully
+2026-01-28 09:45:34,345 [INFO] src.main - ============================================================
+2026-01-28 09:46:03,404 [INFO] src.main - ============================================================
+2026-01-28 09:46:03,404 [INFO] src.main - Starting harvest cycle
+2026-01-28 09:46:03,404 [INFO] src.main - ============================================================
+2026-01-28 09:46:03,410 [INFO] src.main - Run ID: 2
+2026-01-28 09:46:03,410 [INFO] src.main - Fetching chain state...
+2026-01-28 09:46:03,410 [INFO] src.main - Current block: 12345
+2026-01-28 09:46:03,410 [INFO] src.main - Last run completed at 2026-01-28T16:45:34.342642
+2026-01-28 09:46:03,410 [INFO] src.main - Last block: 12345
+2026-01-28 09:46:03,410 [INFO] src.main - Current alpha balance: 100.000000000000
+2026-01-28 09:46:03,410 [INFO] src.main - Alpha earned (delta): 100.000000000000
+2026-01-28 09:46:03,413 [INFO] src.main - Planning harvest...
+2026-01-28 09:46:03,414 [INFO] src.main - Total accumulated: 200.000000000000 alpha
+2026-01-28 09:46:03,414 [INFO] src.main - Harvestable (50%): 100.000000000000 alpha
+2026-01-28 09:46:03,414 [INFO] src.main - Queueing harvest: 10.000000000000 alpha -> 10.000000000000 TAO
+2026-01-28 09:46:03,420 [INFO] src.main - Executing harvest 2...
+2026-01-28 09:46:03,426 [INFO] src.main - TX Hash: 0x0000000000000000000000000000000000000000000000000000000000000000
+2026-01-28 09:46:03,426 [INFO] src.main - Checking Kraken balances...
+2026-01-28 09:46:03,426 [INFO] src.main - Kraken TAO balance: 10.500000000000
+2026-01-28 09:46:03,426 [INFO] src.main - Kraken USD balance: 250.75
+2026-01-28 09:46:03,426 [INFO] src.main - Checking withdrawal eligibility...
+2026-01-28 09:46:03,426 [INFO] src.main - Exporting tax CSVs...
+2026-01-28 09:46:03,428 [INFO] src.main -   rewards: rewards.csv
+2026-01-28 09:46:03,428 [INFO] src.main -   harvests: harvest.csv
+2026-01-28 09:46:03,428 [INFO] src.main -   sales: sales.csv
+2026-01-28 09:46:03,428 [INFO] src.main -   withdrawals: withdrawals.csv
+2026-01-28 09:46:03,431 [INFO] src.main - Harvest cycle completed successfully
+2026-01-28 09:46:03,431 [INFO] src.main - ============================================================
+2026-01-28 09:49:04,839 [INFO] src.main - ============================================================
+2026-01-28 09:49:04,839 [INFO] src.main - Starting harvest cycle
+2026-01-28 09:49:04,839 [INFO] src.main - ============================================================
+2026-01-28 09:49:04,845 [INFO] src.main - Run ID: 3
+2026-01-28 09:49:04,845 [INFO] src.main - Fetching chain state...
+2026-01-28 09:49:04,845 [INFO] src.main - Current block: 12345
+2026-01-28 09:49:04,845 [INFO] src.main - Last run completed at 2026-01-28T16:46:03.428814
+2026-01-28 09:49:04,845 [INFO] src.main - Last block: 12345
+2026-01-28 09:49:04,845 [INFO] src.main - Current alpha balance: 100.000000000000
+2026-01-28 09:49:04,845 [INFO] src.main - Alpha earned (delta): 100.000000000000
+2026-01-28 09:49:04,848 [INFO] src.main - Planning harvest...
+2026-01-28 09:49:04,849 [INFO] src.main - Total accumulated: 300.000000000000 alpha
+2026-01-28 09:49:04,849 [INFO] src.main - Harvestable (50%): 150.000000000000 alpha
+2026-01-28 09:49:04,849 [INFO] src.main - Queueing harvest: 10.000000000000 alpha -> 10.000000000000 TAO
+2026-01-28 09:49:04,855 [INFO] src.main - Executing harvest 3...
+2026-01-28 09:49:04,858 [INFO] src.main - Execution result: Dry run: would harvest 10.0 alpha -> 10.0 TAO to 5GrwvmD...
+2026-01-28 09:49:04,859 [INFO] src.main - TX Hash: 0x0000000000000000000000000000000000000000000000000000000000000000
+2026-01-28 09:49:04,859 [INFO] src.main - Checking Kraken balances...
+2026-01-28 09:49:04,859 [INFO] src.main - Kraken TAO balance: 10.500000000000
+2026-01-28 09:49:04,859 [INFO] src.main - Kraken USD balance: 250.75
+2026-01-28 09:49:04,859 [INFO] src.main - Checking withdrawal eligibility...
+2026-01-28 09:49:04,859 [INFO] src.main - Exporting tax CSVs...
+2026-01-28 09:49:04,861 [INFO] src.main -   rewards: rewards.csv
+2026-01-28 09:49:04,861 [INFO] src.main -   harvests: harvest.csv
+2026-01-28 09:49:04,861 [INFO] src.main -   sales: sales.csv
+2026-01-28 09:49:04,861 [INFO] src.main -   withdrawals: withdrawals.csv
+2026-01-28 09:49:04,864 [INFO] src.main - Harvest cycle completed successfully
+2026-01-28 09:49:04,864 [INFO] src.main - ============================================================
