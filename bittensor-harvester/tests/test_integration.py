@@ -7,8 +7,8 @@ from src.database import Database
 from src.config import HarvesterConfig
 from src.chain import ChainClient
 from src.accounting import Accounting
-from src.harvest import HarvestPolicy
-from src.executor import Executor
+from src.harvest_decision import HarvestPolicy
+from src.alpha_harvester import Executor
 from src.export import TaxExporter
 
 

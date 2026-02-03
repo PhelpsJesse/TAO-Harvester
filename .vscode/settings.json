@@ -1,0 +1,12 @@
+{
+    "chat.tools.terminal.autoApprove": {
+        "/^_and_report\\.py$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^python -m pip install substrate-interface==1\\.8\\.1 --no-cache-dir$/": {
+            "approve": true,
+            "matchCommandLine": true
+        }
+    }
+}

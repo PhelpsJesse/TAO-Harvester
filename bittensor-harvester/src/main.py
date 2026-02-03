@@ -1,32 +1,44 @@
 """
 Main orchestrator for the Bittensor harvester.
 
-Runs the daily harvest cycle:
-1. Fetch current alpha balance from chain.
-2. Compute delta (earned rewards).
-3. Record in accounting ledger.
-4. Plan harvest (apply policy).
-5. Execute harvest (alpha → TAO conversion + transfer).
-6. Optionally: sell TAO → USD on Kraken.
-7. Optionally: withdraw USD → checking.
-8. Export tax CSVs.
-9. Record completion in database.
+SIMPLIFIED WORKFLOW:
+1. Run import_snapshot.py daily (stores balances in database)
+2. Calculate emissions from database snapshots (today - yesterday - transfers)
+3. Record emissions in rewards table
+4. Check if accumulated alpha >= harvest threshold
+5. Execute harvest (alpha → TAO swap via RPC) - NOT YET IMPLEMENTED
+6. Sell TAO → USD on Kraken (when TAO balance > threshold)
+7. Withdraw USD → checking account (when USD balance > threshold)
+8. Export tax CSVs
 
-Designed to be idempotent and state-based:
-- Can be run multiple times per day (only processes deltas once).
-- Recovers from partial failures.
-- All state in SQLite.
+State management:
+- All balances stored in SQLite (alpha_snapshots table)
+- Emissions calculated from snapshot deltas
+- No RPC queries for balances (Taostats API only)
+- RPC only used for alpha→TAO swap execution (when implemented)
+
+Usage:
+  # Take daily snapshot first
+  python import_snapshot.py --transfers
+  
+  # Calculate emissions from snapshots
+  python calculate_emissions.py
+  
+  # Run full harvest cycle (dry-run by default)
+  python -m src.main --dry-run
+  
+  # Execute real harvests (after testing)
+  python -m src.main
 """
 
 import logging
 import sys
-from datetime import datetime
+from datetime import datetime, timedelta
 from src.database import Database
 from src.config import HarvesterConfig
-from src.chain import ChainClient
 from src.accounting import Accounting
-from src.harvest import HarvestPolicy
-from src.executor import Executor
+from src.harvest_decision import HarvestPolicy
+from src.alpha_harvester import Executor
 from src.export import TaxExporter
 from src.kraken import KrakenClient
 
@@ -73,10 +85,9 @@ def run_harvest_cycle(config: HarvesterConfig, dry_run: bool = True) -> dict:
     db.connect()
     
     try:
-        chain = ChainClient(config.substrate_rpc_url)
-        accounting = Accounting(db, chain)
+        accounting = Accounting(db)
         harvest_policy = HarvestPolicy(db, accounting, config.harvest_destination_address)
-        executor = Executor(db, chain, dry_run=dry_run)
+        executor = Executor(db, chain=None, dry_run=dry_run)  # No chain client needed for dry-run
         tax_exporter = TaxExporter(db)
         kraken = KrakenClient(config.kraken_api_key, config.kraken_api_secret)
 
@@ -85,52 +96,88 @@ def run_harvest_cycle(config: HarvesterConfig, dry_run: bool = True) -> dict:
         result["run_id"] = run_id
         logger.info(f"Run ID: {run_id}")
 
-        # --- 1. Fetch & compute delta ---
-        logger.info("Fetching chain state...")
-        block = chain.get_block_number()
-        logger.info(f"Current block: {block}")
+        # --- 1. Check if we have today's snapshot ---
+        today = datetime.utcnow().date().isoformat()
+        yesterday = (datetime.utcnow().date() - timedelta(days=1)).isoformat()
+        
+        today_snapshots = db.get_all_snapshots_by_date(config.harvester_wallet_address, today)
+        
+        if not today_snapshots:
+            logger.warning("No snapshots found for today. Run import_snapshot.py first.")
+            logger.info("  python import_snapshot.py --transfers")
+            return result
 
-        # Get previous balance / block
-        last_run = db.get_last_run()
-        prev_balance = 0.0  # TODO: Load from last snapshot
-        if last_run:
-            logger.info(f"Last run completed at {last_run['completed_at']}")
-            logger.info(f"Last block: {last_run['last_block']}")
+        logger.info(f"Found {len(today_snapshots)} subnet snapshots for {today}")
 
-        # Compute delta
-        current_balance, earned_alpha = accounting.compute_daily_delta(
-            address=config.harvester_wallet_address,
-            netuid=config.netuid,
-            prev_balance=prev_balance,
+        # --- 2. Compute deltas from database snapshots ---
+        logger.info("Computing emissions from database snapshots...")
+        subnet_deltas = accounting.compute_all_subnets_delta(
+            config.harvester_wallet_address,
+            today_date=today,
+            yesterday_date=yesterday
         )
-        result["rewards_earned"] = earned_alpha
-        logger.info(f"Current alpha balance: {current_balance:.12f}")
-        logger.info(f"Alpha earned (delta): {earned_alpha:.12f}")
-
-        if earned_alpha > 0:
-            accounting.record_rewards(
-                address=config.harvester_wallet_address,
-                netuid=config.netuid,
-                earned_alpha=earned_alpha,
-                block_number=block,
-            )
+        
+        total_earned = sum(d['earned_alpha'] for d in subnet_deltas.values())
+        result["rewards_earned"] = total_earned
+        
+        logger.info(f"Total emissions earned: {total_earned:.6f} alpha across {len(subnet_deltas)} subnets")
+        
+        # Record emissions as rewards
+        for netuid, data in subnet_deltas.items():
+            if data['earned_alpha'] > 0:
+                accounting.record_rewards(
+                    address=config.harvester_wallet_address,
+                    netuid=netuid,
+                    earned_alpha=data['earned_alpha'],
+                    block_number=0,  # Not tracking blocks from Taostats
+                    tx_hash=None
+                )
 
         # --- 2. Plan harvest ---
         logger.info("Planning harvest...")
-        harvestable = accounting.get_harvestable_amount(
-            netuid=config.netuid,
-            harvest_fraction=config.harvest_fraction,
-        )
-        logger.info(f"Total accumulated: {harvestable['total_accumulated']:.12f} alpha")
-        logger.info(f"Harvestable (50%): {harvestable['harvestable']:.12f} alpha")
+        
+        # Get total accumulated rewards across all subnets
+        accumulated = db.get_accumulated_rewards(netuid=None)  # All subnets
+        total_accumulated = sum(accumulated.values()) if isinstance(accumulated, dict) else 0.0
+        harvestable = total_accumulated * config.harvest_fraction
+        
+        logger.info(f"Total accumulated: {total_accumulated:.6f} alpha")
+        logger.info(f"Harvestable ({config.harvest_fraction*100:.0f}%): {harvestable:.6f} alpha")
 
         # Plan
+        # Compute weighted conversion rate across subnets using latest subnet_snapshots
+        # Weight by accumulated rewards per subnet to reflect harvest allocation
+        weighted_rate = 1.0
+        try:
+            # Get today's subnet snapshots (alpha + tao_per_alpha)
+            today_subnet_snaps = db.conn.execute(
+                """
+                SELECT netuid, alpha_balance, tao_per_alpha
+                FROM subnet_snapshots
+                WHERE address = ? AND snapshot_date = ?
+                """,
+                (config.harvester_wallet_address, today),
+            ).fetchall()
+
+            per_netuid_rate = {row[0]: (row[2] if row[2] is not None else 1.0) for row in today_subnet_snaps}
+            per_netuid_accum = accumulated if isinstance(accumulated, dict) else {}
+
+            # Weighted average: sum(alpha_i * rate_i) / sum(alpha_i)
+            numer = sum((per_netuid_accum.get(nuid, 0.0) or 0.0) * (per_netuid_rate.get(nuid, 1.0) or 1.0)
+                        for nuid in per_netuid_rate.keys())
+            denom = sum((per_netuid_accum.get(nuid, 0.0) or 0.0) for nuid in per_netuid_rate.keys())
+            if denom > 0:
+                weighted_rate = numer / denom
+        except Exception as e:
+            logger.warning(f"Could not compute weighted conversion rate; defaulting to 1.0: {e}")
+
         plan = harvest_policy.plan_harvest(
-            harvestable_alpha=harvestable["harvestable"],
+            harvestable_alpha=harvestable,
             destination_address=config.harvest_destination_address,
             min_threshold=config.min_harvest_threshold_tao,
             max_per_run=config.max_harvest_per_run_tao,
             max_per_day=config.max_harvest_per_day_tao,
+            conversion_rate_alpha_to_tao=weighted_rate,
         )
 
         if not plan["can_proceed"]:
@@ -179,7 +226,7 @@ def run_harvest_cycle(config: HarvesterConfig, dry_run: bool = True) -> dict:
             logger.info(f"  {key}: {path}")
 
         # --- 8. Finalize run ---
-        db.finish_run(run_id, block)
+        db.finish_run(run_id, last_block=0)  # Not tracking blocks from Taostats
         result["success"] = True
         logger.info("Harvest cycle completed successfully")
 

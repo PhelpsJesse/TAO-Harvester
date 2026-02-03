@@ -1,319 +1,159 @@
-"""
-README for Bittensor TAO Earnings Harvester
+# TAO Harvester
 
-## Overview
+**Automated Bittensor validator emissions tracking and harvesting system**
 
-Autonomous system for tracking Bittensor alpha staking earnings, harvesting to TAO,
-and managing tax-compliant fund movements. Designed for small-to-moderate balances
-with a focus on safety, auditability, and tax compliance.
-
-## Features
-
-### Core
-- **State-based accounting**: Uses on-chain snapshots to compute daily reward deltas
-- **Harvest automation**: Plans and executes alpha → TAO conversions with safety caps
-- **Tax exports**: Generates CSV files for rewards, harvests, and sales (Kraken)
-- **Modular design**: Clear separation between accounting, harvest policy, execution, and export
-
-### Safety
-- Allowlist-only harvest destinations
-- Per-run and per-day harvest caps
-- Minimum execution thresholds (avoid dust)
-- Dry-run support for testing
-- All state in local SQLite (no external services required)
-
-### Optional
-- Kraken integration for TAO → USD sales
-- USD withdrawal to checking account
-- Withdrawal frequency gating (no daily withdrawals)
-
-## Project Structure
-
-```
-bittensor-harvester/
-├── src/
-│   ├── __init__.py              # Package init
-│   ├── main.py                  # Entry point & orchestrator
-│   ├── config.py                # Configuration loading (.env)
-│   ├── database.py              # SQLite schema & operations
-│   ├── chain.py                 # Substrate RPC client (stubs)
-│   ├── accounting.py            # Reward tracking & deltas
-│   ├── harvest.py               # Harvest policy enforcement
-│   ├── executor.py              # On-chain action execution
-│   ├── export.py                # Tax CSV exports
-│   └── kraken.py                # Kraken API integration
-├── tests/
-│   ├── test_database.py         # Database tests
-│   ├── test_accounting.py       # Accounting tests
-│   ├── test_harvest.py          # Harvest policy tests
-│   ├── test_integration.py      # Full cycle integration test
-│   └── example.py               # Usage examples
-├── .env.example                 # Config template (DON'T COMMIT .env)
-├── requirements.txt             # Python dependencies
-└── README.md                    # This file
-```
-
-## Setup
-
-### Prerequisites
-- Python 3.12+
-- pip
-
-### Installation
-
-1. Clone or download the project:
-```bash
-cd bittensor-harvester
-```
-
-2. Create virtual environment (recommended):
-```bash
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
-```
-
-3. Install dependencies:
-```bash
-pip install -r requirements.txt
-```
-
-4. Configure environment:
-```bash
-cp .env.example .env
-# Edit .env with your values
-nano .env
-```
-
-### Configuration (.env)
-
-Critical settings:
-- `SUBSTRATE_RPC_URL`: Node RPC endpoint (e.g., http://localhost:9933)
-- `NETUID`: Subnet ID to harvest from
-- `HARVESTER_WALLET_ADDRESS`: Wallet receiving rewards
-- `HARVEST_DESTINATION_ADDRESS`: Where to send harvested TAO (must be allowlisted!)
-- `HARVESTER_WALLET_SEED` or `HARVESTER_WALLET_ADDRESS`: For signing transactions
-
-Optional:
-- `KRAKEN_API_KEY`, `KRAKEN_API_SECRET`: For automated sales
-- `KRAKEN_DEPOSIT_ADDRESS`: Kraken deposit address for TAO
-
-**Security**: Never commit `.env` or any file with secrets to git!
-
-## Usage
-
-### Run Harvest Cycle (Dry-Run)
-
-Test without making on-chain changes:
-```bash
-python -m src.main --dry-run
-```
-
-### Run Harvest Cycle (Live)
-
-Execute real on-chain transactions (requires keys configured):
-```bash
-python -m src.main
-```
-
-### Run Tests
-
-Unit tests:
-```bash
-python -m pytest tests/ -v
-```
-
-Or directly:
-```bash
-python tests/test_database.py
-python tests/test_accounting.py
-```
-
-Integration test (full cycle with mock):
-```bash
-python tests/test_integration.py
-```
-
-Example usage:
-```bash
-python tests/example.py
-```
-
-### Check Database
-
-View current state:
-```bash
-sqlite3 harvester.db
-sqlite> SELECT * FROM rewards;
-sqlite> SELECT * FROM harvests;
-```
-
-### Export Tax Data
-
-Automatically exported after each run to:
-- `rewards.csv` - Income events
-- `harvest.csv` - Conversions & transfers
-- `sales.csv` - Kraken sales (if enabled)
-- `withdrawals.csv` - Bank withdrawals (non-taxable tracking)
-
-Format is compatible with tax software and CPAs.
-
-## Daily Operation
-
-### Desktop Phase
-
-Set up cron job (Linux/Mac) or Task Scheduler (Windows) to run once daily:
-
-**Linux/Mac Cron**:
-```bash
-# Run at 2 AM UTC daily
-0 2 * * * /path/to/venv/bin/python /path/to/bittensor-harvester/src/main.py >> /path/to/logs/harvest.log 2>&1
-```
-
-**Windows Task Scheduler**:
-1. Create task: `bittensor-harvester-daily`
-2. Trigger: Daily at 2 AM
-3. Action: Run `python.exe` with args: `C:\path\to\bittensor-harvester\src\main.py`
-
-### Raspberry Pi Phase
-
-Once desktop is stable:
-1. Install Python 3.12+ on Pi
-2. Set up venv and install dependencies
-3. Copy `.env` (with secrets in environment variables)
-4. Configure cron as above
-
-## Architecture
-
-### Accounting (State-Based)
-
-1. Query on-chain alpha balance for wallet
-2. Compare to last known balance (from DB)
-3. Delta = earned rewards for the period
-4. Record in ledger
-
-Benefits:
-- No dependency on specific reward events
-- Works even if emissions are applied as state mutations
-- Robust to network disruptions
-
-### Harvest Policy
-
-Applied in order:
-1. Check destination is allowlisted
-2. Check accumulated balance > min threshold
-3. Apply max-per-run cap
-4. Apply max-per-day cap (rolling)
-5. Queue harvest action
-
-### Execution
-
-1. Pre-flight checks (balance, address validity)
-2. Build extrinsic (Substrate transaction)
-3. Sign with harvester key
-4. Submit to chain (or dry-run)
-5. Record TX hash in database
-6. Poll for finalization
-
-### CSV Export
-
-Each export includes:
-- **Date** (UTC ISO 8601)
-- **Asset** (ALPHA, TAO, USD)
-- **Quantity** (with full precision)
-- **Supporting info** (netuid, conversion rate, destination, tx hash)
-- **Status** (pending, completed)
-
-Suitable for:
-- Tax software import
-- CPA review
-- Audit trail
-
-## Error Handling
-
-The system is designed to be idempotent and recoverable:
-
-- **Partial harvest**: If TX fails, marked "pending" in DB; can retry
-- **Config reload**: Picks up new .env values on next run (no restart)
-- **Chain downtime**: Skips if RPC unreachable; retries next day
-- **Log files**: Detailed logs in `harvester.log`
-
-## Security Considerations
-
-### Current (Desktop)
-
-- Secrets in `.env` (never committed)
-- Optional encryption of wallet seed (TODO: implement)
-- Outbound firewall rules (only allow RPC + Kraken IP)
-
-### Future (Autonomous)
-
-- Environment variable injection at startup
-- Hardware security module (HSM) for key storage
-- Rate limiting on withdrawals
-- Slack/email alerts for unusual activity
-
-## TODO / Future Work
-
-### Chain Integration
-- [ ] Real Substrate RPC calls (currently mocked)
-- [ ] Implement extrinsic signing & submission
-- [ ] Handle network retries & exponential backoff
-- [ ] Monitor finalization blocks
-
-### Kraken Integration
-- [ ] Implement real Kraken API (currently mocked)
-- [ ] Handle order fills vs. partial fills
-- [ ] Implement order cancellation & retry
-
-### Security
-- [ ] Wallet seed encryption/unlock
-- [ ] HSM support for autonomous phase
-- [ ] Rate limiting on withdrawals
-- [ ] Alerting (Slack, email)
-
-### Operations
-- [ ] Web dashboard for monitoring
-- [ ] Telegram bot for alerts
-- [ ] Historical analytics (yield, fees)
-- [ ] Multi-subnet support (currently hardcoded to netuid=1)
-
-## Troubleshooting
-
-### "Destination not in allowlist"
-**Fix**: Add address to `HARVEST_DESTINATION_ADDRESS` in `.env`
-
-### "Below min threshold"
-**Fix**: Accumulate more rewards or lower `MIN_HARVEST_THRESHOLD_TAO`
-
-### "No Kraken API key configured"
-**Fix**: Leave Kraken settings empty for now; sales disabled
-
-### Database locked
-**Fix**: Ensure only one instance runs at a time. Check `harvester.log` for details.
-
-### RPC connection refused
-**Fix**: Verify `SUBSTRATE_RPC_URL` is reachable. Try local node or public endpoint.
-
-## Contributing
-
-This is a personal tool, but improvements welcome:
-- Bug reports: Open an issue
-- Features: Submit PR with tests
-- Security: Email privately (do not open public issues for vulns)
-
-## License
-
-MIT (See LICENSE file if present)
-
-## Disclaimer
-
-**This software is provided as-is without warranty.** Test thoroughly on small amounts
-before running with large balances. Always keep a backup of your database and keys.
-The author is not responsible for lost funds or other damages.
+Track daily alpha earnings from your Bittensor validators and automate the conversion to TAO/USD.
 
 ---
 
-**Questions?** Check `tests/example.py` or `tests/test_integration.py` for examples.
-"""
+## Quick Start
 
-__version__ = "0.1.0"
+### 1. Install
+
+```powershell
+pip install -r requirements.txt
+```
+
+### 2. Configure
+
+Create `.env` file with your settings:
+
+```bash
+VALIDATOR_HOTKEYS=5EWvVeoscCk6atHj5ZncAqx7u7QtfvHvCifgKyysPsYbMfmh
+TAOSTATS_API_KEY=tao-xxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx:xxxxxx
+```
+
+### 3. Run
+
+```powershell
+python daily_emissions_report.py
+```
+
+---
+
+## What It Does
+
+**Phase 1 (Current):** Daily Emissions Tracking ✅
+- Fetches alpha balances from Taostats API
+- Stores daily snapshots in database
+- Calculates daily earnings by comparing to previous day
+- Generates CSV reports with alpha values and TAO estimates
+
+**Phase 2 (Planned):** Automated Alpha→TAO Conversion  
+**Phase 3 (Planned):** TAO→USD Sales via Kraken  
+**Phase 4 (Planned):** Automated Bank Deposits  
+
+---
+
+## Key Features
+
+- **Alpha-based tracking:** Stores alpha values (not TAO) for accuracy over time
+- **Daily snapshots:** Compares today vs yesterday to calculate earnings
+- **Multi-subnet support:** Tracks all 25+ subnets automatically
+- **TAO estimates:** Calculates current TAO value for display
+- **CSV reports:** Easy to import into Excel/Sheets
+- **SQLite database:** Local storage, no external dependencies
+
+---
+
+## Configuration
+
+All settings in `config.py` can be overridden via `.env`:
+
+**Required:**
+- `VALIDATOR_HOTKEYS` - Your validator hotkey address
+- `TAOSTATS_API_KEY` - Get from https://taostats.io
+
+**Optional:**
+- `MIN_ALPHA_THRESHOLD` - Minimum alpha before harvesting (default: 5.0)
+- `SUBSTRATE_RPC_URL` - RPC endpoint (default: lite.chain.opentensor.ai)
+- `KRAKEN_API_KEY` / `KRAKEN_API_SECRET` - For Phase 3 (automated sales)
+
+See `config.py` for full list of settings.
+
+---
+
+## Output Files
+
+- `reports/daily_emissions_YYYY-MM-DD.csv` - Daily CSV report
+- `harvester.db` - SQLite database with snapshot history
+- `logs/` - Application logs (if debug enabled)
+
+---
+
+## Important Notes
+
+### Taostats Rate Limiting
+
+Free tier = **5 API calls/minute**. If you see "Only 4 subnets returned":
+- Wait 5-10 minutes and run again
+- Taostats will return more complete data after rate limit resets
+
+### Alpha vs TAO
+
+- **Alpha values** stored in database (conversion rates change over time)
+- **TAO estimates** calculated only for display
+- This ensures accurate historical tracking
+
+### First Run
+
+- Establishes baseline snapshot
+- Daily earnings will show 0 on first run
+- Run again tomorrow to see actual daily delta
+
+---
+
+## Troubleshooting
+
+**"No TAOSTATS_API_KEY configured"**  
+→ Add API key to `.env` (get from https://taostats.io)
+
+**"Only X subnets returned (expected ~25)"**  
+→ Taostats rate limit - wait 5-10 minutes and retry
+
+**"Could not fetch from Taostats"**  
+→ Check API key validity, network connection, rate limits
+
+---
+
+## File Structure
+
+```
+bittensor-harvester/
+├── daily_emissions_report.py    # Main script
+├── config.py                     # All configuration
+├── .env                          # Your secrets
+├── requirements.txt              # Dependencies
+├── harvester.db                  # Database
+├── reports/                      # CSV outputs
+├── src/                          # Core library
+│   ├── chain.py                  # RPC client
+│   ├── taostats.py               # Taostats API
+│   ├── alpha_swap.py             # Alpha conversion
+│   └── ...
+└── archive/                      # Obsolete scripts
+```
+
+---
+
+## Development Roadmap
+
+- [x] Phase 1: Daily emissions tracking
+- [ ] Phase 2: Automated alpha→TAO conversion
+- [ ] Phase 3: TAO→USD sales (Kraken integration)
+- [ ] Phase 4: Automated bank deposits
+- [ ] Phase 5: Windows Task Scheduler integration
+
+---
+
+## Links
+
+- **Bittensor:** https://docs.bittensor.com/
+- **Taostats:** https://taostats.io/
+- **Kraken API:** https://docs.kraken.com/rest/
+
+---
+
+## License
+
+See LICENSE file.

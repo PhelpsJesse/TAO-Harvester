@@ -4,7 +4,7 @@ import unittest
 from src.database import Database
 from src.chain import ChainClient
 from src.accounting import Accounting
-from src.harvest import HarvestPolicy
+from src.harvest_decision import HarvestPolicy
 import tempfile
 import os
 

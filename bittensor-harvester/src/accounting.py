@@ -1,53 +1,153 @@
 """
 Accounting & delta computation.
 
-Tracks earned alpha rewards using state-based deltas.
+Tracks earned alpha rewards using database snapshots.
 Applies harvest policy to determine harvestable amount.
 
 Logic:
-1. Snapshot alpha balance at start of day / last run.
-2. Snapshot alpha balance at end of day / this run.
-3. Delta = current - last = earned rewards.
-4. Accumulate in database.
-5. Apply 50% harvest fraction to determine harvestable amount.
+1. Daily snapshots stored in database (via import_snapshot.py)
+2. Delta = today_balance - yesterday_balance - net_transfers
+3. Record emissions as rewards in database
+4. Apply harvest fraction (50%) to determine harvestable amount
 """
 
-from datetime import datetime
-from typing import Dict, Tuple
+from datetime import datetime, timedelta
+from typing import Dict, Tuple, List
 from src.database import Database
-from src.chain import ChainClient
 
 
 class Accounting:
-    """Accounting system for reward tracking and delta computation."""
+    """Accounting system for reward tracking and delta computation using database snapshots."""
 
-    def __init__(self, db: Database, chain: ChainClient):
-        """Initialize accounting."""
+    def __init__(self, db: Database):
+        """Initialize accounting with database connection."""
         self.db = db
-        self.chain = chain
 
     def compute_daily_delta(
-        self, address: str, netuid: int, prev_balance: float = None
+        self, address: str, netuid: int, today_date: str = None, yesterday_date: str = None
     ) -> Tuple[float, float]:
         """
-        Compute daily reward delta using state snapshots.
+        Compute daily reward delta using database snapshots.
 
         Args:
             address: SS58 address
             netuid: Subnet ID
-            prev_balance: Previous balance (if None, query from DB)
+            today_date: Date string (YYYY-MM-DD), defaults to today
+            yesterday_date: Date string (YYYY-MM-DD), defaults to yesterday
 
         Returns:
             (current_balance, earned_alpha)
         """
-        current_balance = self.chain.get_alpha_balance(address, netuid)
+        if today_date is None:
+            today_date = datetime.utcnow().date().isoformat()
+        if yesterday_date is None:
+            yesterday_date = (datetime.utcnow().date() - timedelta(days=1)).isoformat()
 
-        if prev_balance is None:
-            # TODO: Load from DB if we have a previous snapshot
-            prev_balance = 0.0  # First run or no prior data
+        # Get snapshots from database
+        today_snapshot = self.db.get_alpha_snapshot(address, netuid, today_date)
+        yesterday_snapshot = self.db.get_alpha_snapshot(address, netuid, yesterday_date)
 
-        earned = max(0, current_balance - prev_balance)
+        current_balance = today_snapshot['alpha_balance'] if today_snapshot else 0.0
+        prev_balance = yesterday_snapshot['alpha_balance'] if yesterday_snapshot else 0.0
+
+        # Get net transfers between dates (to exclude from emissions calculation)
+        transfers = self.db.get_transfers_by_date_range(address, yesterday_date, today_date)
+        net_transfers = sum(t['amount'] for t in transfers if t['to_address'] == address) - \
+                       sum(t['amount'] for t in transfers if t['from_address'] == address)
+
+        # Earned = today - yesterday - net_transfers
+        earned = max(0, current_balance - prev_balance - net_transfers)
+        
+        # Store in database for historical tracking/graphing
+        if earned > 0 or current_balance != prev_balance:
+            self.db.insert_daily_emission(
+                address=address,
+                netuid=netuid,
+                emission_date=today_date,
+                previous_balance=prev_balance,
+                current_balance=current_balance,
+                net_transfers=net_transfers,
+                emissions_earned=earned
+            )
+        
         return current_balance, earned
+    
+    def compute_all_subnets_delta(
+        self, address: str, today_date: str = None, yesterday_date: str = None
+    ) -> Dict[int, Dict]:
+        """
+        Compute daily deltas for all subnets at once.
+
+        Args:
+            address: SS58 address
+            today_date: Date string (YYYY-MM-DD), defaults to today
+            yesterday_date: Date string (YYYY-MM-DD), defaults to yesterday
+
+        Returns:
+            {
+                netuid: {
+                    'current_balance': float,
+                    'previous_balance': float,
+                    'net_transfers': float,
+                    'earned_alpha': float
+                },
+                ...
+            }
+        """
+        if today_date is None:
+            today_date = datetime.utcnow().date().isoformat()
+        if yesterday_date is None:
+            yesterday_date = (datetime.utcnow().date() - timedelta(days=1)).isoformat()
+
+        # Get all snapshots for both dates
+        today_snapshots = self.db.get_all_snapshots_by_date(address, today_date)
+        yesterday_snapshots = self.db.get_all_snapshots_by_date(address, yesterday_date)
+
+        # Convert to dictionaries keyed by netuid
+        today_by_subnet = {s['netuid']: s['alpha_balance'] for s in today_snapshots}
+        yesterday_by_subnet = {s['netuid']: s['alpha_balance'] for s in yesterday_snapshots}
+
+        # Get transfers
+        transfers = self.db.get_transfers_by_date_range(address, yesterday_date, today_date)
+        
+        # Calculate net transfers (positive = received, negative = sent)
+        net_transfers = sum(t['amount'] for t in transfers if t['to_address'] == address) - \
+                       sum(t['amount'] for t in transfers if t['from_address'] == address)
+
+        # Combine all subnet IDs
+        all_netuids = set(today_by_subnet.keys()) | set(yesterday_by_subnet.keys())
+
+        results = {}
+        for netuid in all_netuids:
+            current = today_by_subnet.get(netuid, 0.0)
+            previous = yesterday_by_subnet.get(netuid, 0.0)
+            
+            # For now, distribute net transfers proportionally or assume zero per subnet
+            # (More accurate would be per-subnet transfer tracking)
+            subnet_net_transfers = 0.0  # TODO: Track transfers per subnet if needed
+            
+            earned = max(0, current - previous - subnet_net_transfers)
+            
+            results[netuid] = {
+                'current_balance': current,
+                'previous_balance': previous,
+                'net_transfers': subnet_net_transfers,
+                'earned_alpha': earned
+            }
+            
+            # Store in database for historical tracking/graphing
+            if earned > 0 or current != previous:
+                self.db.insert_daily_emission(
+                    address=address,
+                    netuid=netuid,
+                    emission_date=today_date,
+                    previous_balance=previous,
+                    current_balance=current,
+                    net_transfers=subnet_net_transfers,
+                    emissions_earned=earned
+                )
+
+        return results
 
     def record_rewards(
         self, address: str, netuid: int, earned_alpha: float, block_number: int, tx_hash: str = None

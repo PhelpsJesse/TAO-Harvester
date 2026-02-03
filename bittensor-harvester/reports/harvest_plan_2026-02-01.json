@@ -1,0 +1,138 @@
+{
+  "report_path": "reports\\earnings_report_2026-02-01.csv",
+  "total_harvestable": 49.875625931150786,
+  "per_subnet": {
+    "60": 13.928962588293187,
+    "34": 3.1688904144478753,
+    "44": 4.6992430246374,
+    "54": 3.454844055038815,
+    "64": 3.394369265502077,
+    "75": 3.366677876537288,
+    "118": 4.8132945150350315,
+    "120": 5.221147183952742,
+    "124": 5.493425658157468,
+    "29": 2.3347713495489058
+  },
+  "prepared": [
+    {
+      "netuid": 60,
+      "amount_alpha": 13.928962588293187,
+      "prepared_tx": {
+        "tx_id": "ee017823-10bf-4bc0-8068-5314202fbffd",
+        "netuid": 60,
+        "amount_alpha": 13.928962588293187,
+        "wallet": "5EWvVeoscCk6atHj5ZncAqx7u7QtfvHvCifgKyysPsYbMfmh",
+        "action": "convert_alpha_to_tao",
+        "status": "prepared"
+      }
+    },
+    {
+      "netuid": 34,
+      "amount_alpha": 3.1688904144478753,
+      "prepared_tx": {
+        "tx_id": "c07f5877-f0c1-43e3-bf87-eb4fe6ade6f3",
+        "netuid": 34,
+        "amount_alpha": 3.1688904144478753,
+        "wallet": "5EWvVeoscCk6atHj5ZncAqx7u7QtfvHvCifgKyysPsYbMfmh",
+        "action": "convert_alpha_to_tao",
+        "status": "prepared"
+      }
+    },
+    {
+      "netuid": 44,
+      "amount_alpha": 4.6992430246374,
+      "prepared_tx": {
+        "tx_id": "cf0b559a-0db5-4958-a383-6a0c7ae73ca7",
+        "netuid": 44,
+        "amount_alpha": 4.6992430246374,
+        "wallet": "5EWvVeoscCk6atHj5ZncAqx7u7QtfvHvCifgKyysPsYbMfmh",
+        "action": "convert_alpha_to_tao",
+        "status": "prepared"
+      }
+    },
+    {
+      "netuid": 54,
+      "amount_alpha": 3.454844055038815,
+      "prepared_tx": {
+        "tx_id": "172e5448-1af3-496e-b677-fccea8b3aa8d",
+        "netuid": 54,
+        "amount_alpha": 3.454844055038815,
+        "wallet": "5EWvVeoscCk6atHj5ZncAqx7u7QtfvHvCifgKyysPsYbMfmh",
+        "action": "convert_alpha_to_tao",
+        "status": "prepared"
+      }
+    },
+    {
+      "netuid": 64,
+      "amount_alpha": 3.394369265502077,
+      "prepared_tx": {
+        "tx_id": "8f419c36-c58e-491d-a874-eae931915411",
+        "netuid": 64,
+        "amount_alpha": 3.394369265502077,
+        "wallet": "5EWvVeoscCk6atHj5ZncAqx7u7QtfvHvCifgKyysPsYbMfmh",
+        "action": "convert_alpha_to_tao",
+        "status": "prepared"
+      }
+    },
+    {
+      "netuid": 75,
+      "amount_alpha": 3.366677876537288,
+      "prepared_tx": {
+        "tx_id": "8c553e68-eed1-47d5-b09c-1aafe4f08e6d",
+        "netuid": 75,
+        "amount_alpha": 3.366677876537288,
+        "wallet": "5EWvVeoscCk6atHj5ZncAqx7u7QtfvHvCifgKyysPsYbMfmh",
+        "action": "convert_alpha_to_tao",
+        "status": "prepared"
+      }
+    },
+    {
+      "netuid": 118,
+      "amount_alpha": 4.8132945150350315,
+      "prepared_tx": {
+        "tx_id": "845b0eb2-35fd-49e4-ab7a-2fecfc6583ee",
+        "netuid": 118,
+        "amount_alpha": 4.8132945150350315,
+        "wallet": "5EWvVeoscCk6atHj5ZncAqx7u7QtfvHvCifgKyysPsYbMfmh",
+        "action": "convert_alpha_to_tao",
+        "status": "prepared"
+      }
+    },
+    {
+      "netuid": 120,
+      "amount_alpha": 5.221147183952742,
+      "prepared_tx": {
+        "tx_id": "936f49d0-edd6-452f-984b-d8e2dd7b78a8",
+        "netuid": 120,
+        "amount_alpha": 5.221147183952742,
+        "wallet": "5EWvVeoscCk6atHj5ZncAqx7u7QtfvHvCifgKyysPsYbMfmh",
+        "action": "convert_alpha_to_tao",
+        "status": "prepared"
+      }
+    },
+    {
+      "netuid": 124,
+      "amount_alpha": 5.493425658157468,
+      "prepared_tx": {
+        "tx_id": "a1fe7fb0-0ae0-4868-9f13-6488d3198e7e",
+        "netuid": 124,
+        "amount_alpha": 5.493425658157468,
+        "wallet": "5EWvVeoscCk6atHj5ZncAqx7u7QtfvHvCifgKyysPsYbMfmh",
+        "action": "convert_alpha_to_tao",
+        "status": "prepared"
+      }
+    },
+    {
+      "netuid": 29,
+      "amount_alpha": 2.3347713495489058,
+      "prepared_tx": {
+        "tx_id": "ef06810e-b426-4b03-8665-9992568d52ed",
+        "netuid": 29,
+        "amount_alpha": 2.3347713495489058,
+        "wallet": "5EWvVeoscCk6atHj5ZncAqx7u7QtfvHvCifgKyysPsYbMfmh",
+        "action": "convert_alpha_to_tao",
+        "status": "prepared"
+      }
+    }
+  ]
+}

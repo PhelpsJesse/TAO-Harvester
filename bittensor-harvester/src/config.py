@@ -1,25 +1,46 @@
 """
 Configuration management.
 
-Loads from environment variables and config files.
-Secrets from .env (not committed).
+Loads from environment variables (.env file).
+All secrets stored in .env (NOT committed to git).
+
+Configuration covers:
+- Bittensor RPC endpoint (for alpha balance queries)
+- Harvest policy (percentages, thresholds, caps)
+- Kraken API credentials (for TAO→USD sales)
+- Taostats API key (fallback source, optional)
+- Database path (SQLite state persistence)
+
+See .env.template or .env file for all available options.
 """
 
 import os
 from dataclasses import dataclass
 from dotenv import load_dotenv
+import json
 
 # Load .env file
 load_dotenv()
 
 
+
 @dataclass
 class HarvesterConfig:
     """Harvester configuration."""
+    # Aggregation window (in days) for earnings report
+    aggregation_window_days: int = int(os.getenv("AGGREGATION_WINDOW_DAYS", "1"))
 
-    # Chain
-    substrate_rpc_url: str = os.getenv("SUBSTRATE_RPC_URL", "http://localhost:9933")
+    # Chain - Archive RPC for transactions (queries use Taostats)
+    archive_rpc_url: str = os.getenv("ARCHIVE_RPC_URL", "wss://archive.chain.opentensor.ai:443")
     netuid: int = int(os.getenv("NETUID", "1"))
+
+    # Validators: comma-separated list of SS58 hotkeys to monitor
+    # Example: VALIDATOR_HOTKEYS=5ABC...,5DEF...
+    validator_hotkeys: str = os.getenv("VALIDATOR_HOTKEYS", "")
+
+    # Subnets to monitor (comma-separated list). Defaults to NETUID if not set.
+    # Example: SUBNET_LIST=1,5,9
+    subnet_list: str = os.getenv("SUBNET_LIST", os.getenv("NETUID", "1"))
 
     # Harvest policy
     harvest_fraction: float = float(os.getenv("HARVEST_FRACTION", "0.5"))  # 50% of emissions
@@ -46,6 +67,9 @@ class HarvesterConfig:
     kraken_api_key: str = os.getenv("KRAKEN_API_KEY", "")
     kraken_api_secret: str = os.getenv("KRAKEN_API_SECRET", "")
     kraken_deposit_address: str = os.getenv("KRAKEN_DEPOSIT_ADDRESS", "")
+
+    # Taostats API (optional, for earnings statistics)
+    taostats_api_key: str = os.getenv("TAOSTATS_API_KEY", "")
 
     # Withdrawal settings
     min_withdrawal_threshold_usd: float = float(
@@ -80,11 +104,58 @@ class HarvesterConfig:
         if errors:
             raise ValueError("Configuration errors:\n" + "\n".join(f"  - {e}" for e in errors))
 
+    def get_validator_list(self):
+        """Return list of validator hotkeys from config (or single address)."""
+        vals = self.validator_hotkeys.strip()
+        if not vals:
+            # fallback to HARVESTER_WALLET_ADDRESS if set
+            if self.harvester_wallet_address:
+                return [self.harvester_wallet_address]
+            return []
+        return [v.strip() for v in vals.split(",") if v.strip()]
+
+    def get_subnet_list(self):
+        """Return list of subnet IDs to monitor as ints."""
+        raw = self.subnet_list.strip()
+        if not raw:
+            return [self.netuid]
+        parts = [p.strip() for p in raw.split(",") if p.strip()]
+        out = []
+        for p in parts:
+            try:
+                out.append(int(p))
+            except ValueError:
+                continue
+        return out
+
     @classmethod
     def from_env(cls) -> "HarvesterConfig":
         """Load config from environment."""
+        # Prefer JSON config file if present
+        json_path = os.path.join(os.getcwd(), 'config.json')
         config = cls()
-        # validate() can be called separately; don't force it here
+        if os.path.exists(json_path):
+            try:
+                with open(json_path, 'r') as f:
+                    data = json.load(f)
+                # Map known keys from JSON into dataclass fields
+                if 'taostats_api_key' in data:
+                    config.taostats_api_key = data['taostats_api_key']
+                if 'validator_hotkeys' in data:
+                    config.validator_hotkeys = ','.join(data.get('validator_hotkeys', []))
+                if 'subnet_list' in data:
+                    config.subnet_list = ','.join(str(x) for x in data.get('subnet_list', []))
+                if 'harvest_fraction' in data:
+                    config.harvest_fraction = float(data['harvest_fraction'])
+                if 'harvest_destination_address' in data:
+                    config.harvest_destination_address = data['harvest_destination_address']
+                if 'harvester_wallet_address' in data:
+                    config.harvester_wallet_address = data['harvester_wallet_address']
+                if 'aggregation_window_days' in data:
+                    config.aggregation_window_days = int(data['aggregation_window_days'])
+            except Exception:
+                # Fall back to environment variables if JSON parsing fails
+                config = cls()
         return config
 
 
