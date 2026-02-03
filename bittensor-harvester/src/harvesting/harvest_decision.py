@@ -16,8 +16,8 @@ Harvest chain:
 
 from datetime import datetime
 from typing import Dict, Optional
-from src.database import Database
-from src.accounting import Accounting
+from src.utils.database import Database
+from src.harvesting.accounting import Accounting
 
 
 class HarvestPolicy:

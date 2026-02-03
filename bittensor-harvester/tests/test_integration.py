@@ -3,12 +3,12 @@
 import tempfile
 import os
 from datetime import datetime
-from src.database import Database
+from src.utils.database import Database
 from src.config import HarvesterConfig
 from src.chain import ChainClient
 from src.accounting import Accounting
-from src.harvest_decision import HarvestPolicy
-from src.alpha_harvester import Executor
+from src.harvesting.harvest_decision import HarvestPolicy
+from src.harvesting.alpha_harvester import Executor
 from src.export import TaxExporter
 
 

@@ -4,7 +4,7 @@ import unittest
 import tempfile
 import os
 from datetime import datetime
-from src.database import Database
+from src.utils.database import Database
 
 
 class TestDatabase(unittest.TestCase):

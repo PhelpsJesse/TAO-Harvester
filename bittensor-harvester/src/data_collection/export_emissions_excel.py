@@ -15,7 +15,7 @@ from dotenv import load_dotenv
 
 # Add parent directory to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from src.database import Database
+from src.utils.database import Database
 
 load_dotenv()
 

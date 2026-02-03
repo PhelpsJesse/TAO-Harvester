@@ -12,7 +12,7 @@ Format: timestamp (UTC), asset, quantity, unit_price, total_value, tx_hash, note
 import csv
 from datetime import datetime
 from pathlib import Path
-from src.database import Database
+from src.utils.database import Database
 
 
 class TaxExporter:

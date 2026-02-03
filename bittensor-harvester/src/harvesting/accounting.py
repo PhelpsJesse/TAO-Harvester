@@ -13,7 +13,7 @@ Logic:
 
 from datetime import datetime, timedelta
 from typing import Dict, Tuple, List
-from src.database import Database
+from src.utils.database import Database
 
 
 class Accounting:

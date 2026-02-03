@@ -34,13 +34,13 @@ Usage:
 import logging
 import sys
 from datetime import datetime, timedelta
-from src.database import Database
-from src.config import HarvesterConfig
-from src.accounting import Accounting
-from src.harvest_decision import HarvestPolicy
-from src.alpha_harvester import Executor
-from src.export import TaxExporter
-from src.kraken import KrakenClient
+from src.utils.database import Database
+from src.utils.config import HarvesterConfig
+from src.harvesting.accounting import Accounting
+from src.harvesting.harvest_decision import HarvestPolicy
+from src.harvesting.alpha_harvester import Executor
+from src.trading.export import TaxExporter
+from src.trading.kraken import KrakenClient
 
 # Setup logging
 logging.basicConfig(

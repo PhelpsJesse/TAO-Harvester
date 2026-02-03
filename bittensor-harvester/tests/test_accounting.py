@@ -1,9 +1,9 @@
 """Tests for accounting module."""
 
 import unittest
-from src.database import Database
-from src.chain import ChainClient
-from src.accounting import Accounting
+from src.utils.database import Database
+from src.utils.chain import ChainClient
+from src.harvesting.accounting import Accounting
 import tempfile
 import os
 

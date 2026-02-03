@@ -17,7 +17,7 @@ from typing import Optional
 
 
 class Database:
-    def __init__(self, db_path: str = "harvester.db"):
+    def __init__(self, db_path: str = "data/harvester.db"):
         """Initialize database connection and create schema if needed."""
         self.db_path = db_path
         self.conn = None

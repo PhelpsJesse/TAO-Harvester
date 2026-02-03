@@ -41,7 +41,7 @@ except ImportError:
     Market = None
     User = None
 
-from src.database import Database
+from src.utils.database import Database
 
 logger = logging.getLogger(__name__)
 

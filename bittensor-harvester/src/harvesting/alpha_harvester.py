@@ -52,8 +52,8 @@ STATUS: NOT IMPLEMENTED - Currently returns mock data only
 
 from typing import Dict, Optional
 from datetime import datetime
-from src.database import Database
-from src.chain import ChainClient
+from src.utils.database import Database
+from src.utils.chain import ChainClient
 
 
 class Executor:
