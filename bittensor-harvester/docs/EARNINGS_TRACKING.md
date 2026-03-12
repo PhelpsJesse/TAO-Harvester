@@ -134,6 +134,7 @@ Example: If source address "5Fqq..." emits 1 TAO and maps to subnets [29, 34, 44
 1. **Per-subnet emissions data**: If Taostats or on-chain data becomes available showing actual emissions per subnet, update the split logic to use real amounts instead of equal split
 2. **Validator registration lookup**: Query Substrate chain for subnet validator registrations to auto-populate the emissions_config.json
 3. **Unknown source handling**: When a new source address appears, automatically alert user and ask them to map it
+4. **Repo config sanitization**: Replace tracked `.env` values with a sanitized generic template (for example `.env.example`) and keep local secrets/environment-specific values out of versioned files
 
 ## For Other Users
 
