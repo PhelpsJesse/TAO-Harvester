@@ -117,6 +117,14 @@ class _FakeSession:
         return _FakeResponse({"data": [], "pagination": {"next_page": None}})
 
 
+class _ErrorSession:
+    def __init__(self):
+        self.headers: dict[str, str] = {}
+
+    def get(self, url: str, params: dict | None = None, timeout: int | None = None):
+        raise RuntimeError("HTTP 401 Unauthorized")
+
+
 class TestTaostatsHttpAdapter(unittest.TestCase):
     def test_maps_snapshots_transfers_and_stake_history(self):
         wallet = "5WalletForTest"
@@ -158,6 +166,21 @@ class TestTaostatsHttpAdapter(unittest.TestCase):
         self.assertEqual(transfer_calls[1][1].get("page"), 2)
 
         self.assertEqual(adapter.session.headers.get("Authorization"), "test-key")
+
+    def test_returns_empty_lists_when_http_calls_fail(self):
+        wallet = "5WalletForTest"
+        adapter = TaostatsHttpAdapter(base_url="https://api.taostats.io", api_key="test-key", timeout_sec=15)
+        adapter.session = _ErrorSession()
+
+        run_date = date(2026, 3, 10)
+
+        snapshots = adapter.fetch_snapshots(run_date, wallet)
+        transfers = adapter.fetch_transfers(run_date, wallet)
+        stake_events = adapter.fetch_stake_history(run_date, wallet)
+
+        self.assertEqual(snapshots, [])
+        self.assertEqual(transfers, [])
+        self.assertEqual(stake_events, [])
 
 
 if __name__ == "__main__":
