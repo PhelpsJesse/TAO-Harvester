@@ -299,6 +299,31 @@ class SQLiteRepository:
         ).fetchone()
         return float(row["total"] or 0.0)
 
+    def sum_estimated_earned_alpha_between(self, start_date: date, end_date: date, wallet_address: str) -> float:
+        row = self.conn.execute(
+            """
+            SELECT COALESCE(SUM(estimated_staking_earned_alpha), 0.0) AS total
+            FROM reconciliations
+            WHERE reconciliation_date >= ? AND reconciliation_date <= ? AND wallet_address = ?
+            """,
+            (start_date.isoformat(), end_date.isoformat(), wallet_address),
+        ).fetchone()
+        return float(row["total"] or 0.0)
+
+    def get_latest_reconciliation_date(self, wallet_address: str) -> date | None:
+        row = self.conn.execute(
+            """
+            SELECT MAX(reconciliation_date) AS max_date
+            FROM reconciliations
+            WHERE wallet_address = ?
+            """,
+            (wallet_address,),
+        ).fetchone()
+        raw = row["max_date"] if row else None
+        if not raw:
+            return None
+        return date.fromisoformat(str(raw))
+
     def count_reconciliations(self, reconciliation_date: date, wallet_address: str) -> int:
         row = self.conn.execute(
             """

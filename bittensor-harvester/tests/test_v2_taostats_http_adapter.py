@@ -32,10 +32,29 @@ class _FakeSession:
                 {
                     "data": [
                         {
+                            "timestamp": "2026-03-12T15:28:36Z",
+                            "address": {"ss58": self.wallet_address},
                             "alpha_balances": [
-                                {"netuid": "1", "balance_rao": 3_250_000_000},
-                                {"netuid": 2, "balance": 4.25},
-                            ]
+                                {"netuid": "1", "balance_rao": 3_250_000_000, "hotkey": "5Hot1"},
+                                {"netuid": 2, "balance": 4.25, "hotkey": "5Hot1"},
+                            ],
+                            "alpha_balances_24hr_ago": [
+                                {"netuid": "1", "balance_rao": 3_100_000_000, "hotkey": "5Hot1"},
+                                {"netuid": 2, "balance": 4.0, "hotkey": "5Hot1"},
+                            ],
+                        }
+                    ]
+                }
+            )
+
+        if url.endswith("/api/dtao/stake_balance/history/v1"):
+            return _FakeResponse(
+                {
+                    "data": [
+                        {
+                            "netuid": int(params.get("netuid", 0)),
+                            "balance": 2_750_000_000,
+                            "timestamp": "2026-03-10T23:59:59Z",
                         }
                     ]
                 }
@@ -133,7 +152,7 @@ class TestTaostatsHttpAdapter(unittest.TestCase):
         fake_session.headers.update(adapter.session.headers)
         adapter.session = fake_session
 
-        run_date = date(2026, 3, 10)
+        run_date = date(2026, 3, 12)
         snapshots = adapter.fetch_snapshots(run_date, wallet)
         transfers = adapter.fetch_transfers(run_date, wallet)
         stake_events = adapter.fetch_stake_history(run_date, wallet)
@@ -166,6 +185,35 @@ class TestTaostatsHttpAdapter(unittest.TestCase):
         self.assertEqual(transfer_calls[1][1].get("page"), 2)
 
         self.assertEqual(adapter.session.headers.get("Authorization"), "test-key")
+
+    def test_uses_alpha_balances_24hr_ago_for_yesterday_snapshots(self):
+        wallet = "5WalletForTest"
+        adapter = TaostatsHttpAdapter(base_url="https://api.taostats.io", api_key="test-key", timeout_sec=15)
+        fake_session = _FakeSession(wallet_address=wallet)
+        fake_session.headers.update(adapter.session.headers)
+        adapter.session = fake_session
+
+        snapshots = adapter.fetch_snapshots(date(2026, 3, 11), wallet)
+
+        self.assertEqual(len(snapshots), 2)
+        self.assertEqual(snapshots[0].netuid, 1)
+        self.assertAlmostEqual(snapshots[0].alpha_balance, 3.1)
+        self.assertEqual(snapshots[1].netuid, 2)
+        self.assertAlmostEqual(snapshots[1].alpha_balance, 4.0)
+
+    def test_fetches_historical_snapshots_for_older_dates(self):
+        wallet = "5WalletForTest"
+        adapter = TaostatsHttpAdapter(base_url="https://api.taostats.io", api_key="test-key", timeout_sec=15)
+        fake_session = _FakeSession(wallet_address=wallet)
+        fake_session.headers.update(adapter.session.headers)
+        adapter.session = fake_session
+
+        snapshots = adapter.fetch_snapshots(date(2026, 3, 10), wallet)
+
+        self.assertEqual(len(snapshots), 2)
+        self.assertTrue(all(s.alpha_balance == 2.75 for s in snapshots))
+        history_calls = [call for call in fake_session.calls if call[0].endswith("/api/dtao/stake_balance/history/v1")]
+        self.assertEqual(len(history_calls), 2)
 
     def test_returns_empty_lists_when_http_calls_fail(self):
         wallet = "5WalletForTest"

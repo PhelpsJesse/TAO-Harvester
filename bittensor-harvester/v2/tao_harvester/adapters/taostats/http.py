@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 import logging
+import time
 from typing import Any
 from datetime import timezone
 
@@ -18,14 +19,32 @@ class TaostatsHttpAdapter(TaostatsIngestionPort):
         self.base_url = base_url.rstrip("/")
         self.timeout_sec = timeout_sec
         self.session = requests.Session()
+        self._account_latest_cache: dict[str, dict[str, Any]] = {}
         if api_key:
             self.session.headers.update({"Authorization": api_key})
         self.source_name = "taostats_http"
 
     def _get(self, path: str, params: dict[str, Any]) -> dict[str, Any]:
-        response = self.session.get(f"{self.base_url}{path}", params=params, timeout=self.timeout_sec)
-        response.raise_for_status()
-        return response.json()
+        return self._get_with_retry(path, params)
+
+    def _get_with_retry(self, path: str, params: dict[str, Any], retries: int = 6) -> dict[str, Any]:
+        for attempt in range(retries + 1):
+            response = self.session.get(f"{self.base_url}{path}", params=params, timeout=self.timeout_sec)
+            if response.status_code != 429:
+                response.raise_for_status()
+                return response.json()
+            if attempt >= retries:
+                response.raise_for_status()
+            retry_after = response.headers.get("Retry-After")
+            if retry_after:
+                try:
+                    wait_seconds = max(0.5, float(retry_after))
+                except ValueError:
+                    wait_seconds = min(12.0, 1.0 * (2**attempt))
+            else:
+                wait_seconds = min(12.0, 1.0 * (2**attempt))
+            time.sleep(wait_seconds)
+        raise RuntimeError("rate limit retry exhausted")
 
     def _get_paged(self, path: str, base_params: dict[str, Any], limit: int = 200, max_pages: int = 10) -> list[dict[str, Any]]:
         page = 1
@@ -75,37 +94,119 @@ class TaostatsHttpAdapter(TaostatsIngestionPort):
         return str(value or "")
 
     def fetch_snapshots(self, snapshot_date: date, wallet_address: str) -> list[AlphaSnapshot]:
-        # TODO: Confirm canonical endpoint/fields for account latest balances.
-        # Example placeholder endpoint used in prior codebase:
-        # /api/account/latest/v1?address=...&network=finney
         try:
-            payload = self._get("/api/account/latest/v1", {"address": wallet_address, "network": "finney"})
+            payload = self._account_latest_cache.get(wallet_address)
+            if payload is None:
+                payload = self._get("/api/account/latest/v1", {"address": wallet_address, "network": "finney"})
+                self._account_latest_cache[wallet_address] = payload
             items = payload.get("data", [])
         except Exception as exc:
             logger.warning("Taostats snapshot fetch failed: %s", exc)
             return []
 
+        if not items:
+            return []
+
+        account_latest = items[0]
+        latest_timestamp = self._parse_ts(account_latest.get("timestamp"))
+        latest_date = latest_timestamp.date()
+
+        if snapshot_date == latest_date:
+            alpha_entries = account_latest.get("alpha_balances", [])
+        elif snapshot_date == (latest_date - timedelta(days=1)):
+            alpha_entries = account_latest.get("alpha_balances_24hr_ago", [])
+        else:
+            alpha_entries = []
+
+        if alpha_entries:
+            return self._map_alpha_entries_to_snapshots(alpha_entries, snapshot_date, wallet_address)
+
+        coldkey = self._extract_ss58(account_latest.get("address")) or wallet_address
+        current_alpha_entries = account_latest.get("alpha_balances", [])
+        return self._fetch_historical_snapshots(snapshot_date=snapshot_date, wallet_address=wallet_address, coldkey=coldkey, reference_alpha_entries=current_alpha_entries)
+
+    def _map_alpha_entries_to_snapshots(self, alpha_entries: list[dict[str, Any]], snapshot_date: date, wallet_address: str) -> list[AlphaSnapshot]:
         snapshots: list[AlphaSnapshot] = []
-        for item in items:
-            for entry in item.get("alpha_balances", []):
-                try:
-                    netuid = int(entry.get("netuid"))
-                    raw_balance = entry.get("balance") or entry.get("balance_rao") or 0
-                    alpha_balance = float(raw_balance)
-                    if alpha_balance > 1e6:
-                        alpha_balance = alpha_balance / 1e9
-                except (TypeError, ValueError):
+        for entry in alpha_entries:
+            try:
+                netuid = int(entry.get("netuid"))
+                if netuid <= 0:
                     continue
-                snapshots.append(
-                    AlphaSnapshot(
-                        snapshot_date=snapshot_date,
-                        wallet_address=wallet_address,
-                        netuid=netuid,
-                        alpha_balance=alpha_balance,
-                        source=self.source_name,
-                        observed_at=datetime.now(timezone.utc).replace(tzinfo=None),
-                    )
+                raw_balance = entry.get("balance") or entry.get("balance_rao") or 0
+                alpha_balance = float(raw_balance)
+                if alpha_balance > 1e6:
+                    alpha_balance = alpha_balance / 1e9
+            except (TypeError, ValueError):
+                continue
+            snapshots.append(
+                AlphaSnapshot(
+                    snapshot_date=snapshot_date,
+                    wallet_address=wallet_address,
+                    netuid=netuid,
+                    alpha_balance=alpha_balance,
+                    source=self.source_name,
+                    observed_at=datetime.now(timezone.utc).replace(tzinfo=None),
                 )
+            )
+        return snapshots
+
+    def _fetch_historical_snapshots(
+        self,
+        snapshot_date: date,
+        wallet_address: str,
+        coldkey: str,
+        reference_alpha_entries: list[dict[str, Any]],
+    ) -> list[AlphaSnapshot]:
+        snapshots: list[AlphaSnapshot] = []
+        date_iso = snapshot_date.isoformat()
+
+        for entry in reference_alpha_entries:
+            hotkey = str(entry.get("hotkey") or "")
+            netuid_raw = entry.get("netuid")
+            if not hotkey or netuid_raw is None:
+                continue
+            try:
+                netuid = int(netuid_raw)
+            except (TypeError, ValueError):
+                continue
+            if netuid <= 0:
+                continue
+
+            try:
+                payload = self._get_with_retry(
+                    "/api/dtao/stake_balance/history/v1",
+                    {
+                        "coldkey": coldkey,
+                        "hotkey": hotkey,
+                        "netuid": netuid,
+                        "date_start": date_iso,
+                        "date_end": date_iso,
+                        "order": "timestamp_desc",
+                        "limit": 1,
+                    },
+                )
+            except Exception as exc:
+                logger.warning("Taostats historical snapshot fetch failed for netuid=%s: %s", netuid, exc)
+                continue
+
+            data = payload.get("data", [])
+            if not data:
+                continue
+
+            hist = data[0]
+            raw_balance = hist.get("balance") or 0
+            alpha_balance = self._normalize_amount(raw_balance)
+            snapshots.append(
+                AlphaSnapshot(
+                    snapshot_date=snapshot_date,
+                    wallet_address=wallet_address,
+                    netuid=netuid,
+                    alpha_balance=alpha_balance,
+                    source=self.source_name,
+                    observed_at=self._parse_ts(hist.get("timestamp")),
+                )
+            )
+
         return snapshots
 
     def fetch_transfers(self, snapshot_date: date, wallet_address: str) -> list[TransferRecord]:
@@ -142,6 +243,8 @@ class TaostatsHttpAdapter(TaostatsIngestionPort):
                 netuid = int(netuid_raw) if netuid_raw is not None else 0
             except (TypeError, ValueError):
                 netuid = 0
+            if netuid <= 0:
+                continue
 
             transfers.append(
                 TransferRecord(
@@ -192,6 +295,8 @@ class TaostatsHttpAdapter(TaostatsIngestionPort):
                 netuid = int(netuid_raw) if netuid_raw is not None else 0
             except (TypeError, ValueError):
                 netuid = 0
+            if netuid <= 0:
+                continue
 
             stake_events.append(
                 StakeHistoryRecord(

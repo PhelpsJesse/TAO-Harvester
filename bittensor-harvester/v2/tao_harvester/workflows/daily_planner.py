@@ -5,6 +5,7 @@ from datetime import date
 from datetime import datetime, timezone
 import json
 import logging
+from datetime import timedelta
 
 from v2.tao_harvester.adapters.taostats.base import TaostatsIngestionPort
 from v2.tao_harvester.config.app_config import AppConfig
@@ -49,12 +50,15 @@ class DailyPlannerWorkflow:
             result="started",
         )
         try:
-            snapshot_count = self._stage_ingest(run_id, run_date)
-            reconciliation_count = self._stage_reconcile(run_id, run_date)
-            planned_harvest_alpha = self._stage_plan_harvest(run_id, run_date, dry_run)
-            transfer_batch_created = self._stage_plan_transfer_batch(run_id, run_date, dry_run)
+            processing_dates = self._build_processing_dates(run_date)
+            snapshot_count = self._stage_ingest(run_id, processing_dates)
+            reconciliation_count = self._stage_reconcile(run_id, processing_dates)
+            planned_harvest_alpha = self._stage_plan_harvest(run_id, run_date, processing_dates[0], dry_run)
+            transfer_batch_created = self._stage_plan_transfer_batch(run_id, run_date, processing_dates[0], dry_run)
 
-            total_estimated = self.repository.sum_estimated_earned_alpha(run_date, self.config.harvester_address)
+            total_estimated = self.repository.sum_estimated_earned_alpha_between(
+                processing_dates[0], run_date, self.config.harvester_address
+            )
             self.repository.mark_run_completed(run_id)
             self._audit(
                 event_type="run_completed",
@@ -113,40 +117,72 @@ class DailyPlannerWorkflow:
         )
         self.repository.insert_audit_event(event)
 
-    def _stage_ingest(self, run_id: int, run_date: date) -> int:
+    def _build_processing_dates(self, run_date: date) -> list[date]:
+        latest = self.repository.get_latest_reconciliation_date(self.config.harvester_address)
+        if latest is None or latest >= run_date:
+            return [run_date]
+        dates: list[date] = []
+        cursor = latest + timedelta(days=1)
+        while cursor <= run_date:
+            dates.append(cursor)
+            cursor += timedelta(days=1)
+        return dates
+
+    def _stage_ingest(self, run_id: int, processing_dates: list[date]) -> int:
         if self.repository.stage_completed(run_id, "ingest"):
             logger.info("Stage ingest already completed for run_id=%s", run_id)
-            return len(self.repository.get_snapshot_map(run_date, self.config.harvester_address))
+            final_date = processing_dates[-1]
+            return len(self.repository.get_snapshot_map(final_date, self.config.harvester_address))
 
-        snapshots = self.ingestion.fetch_snapshots(run_date, self.config.harvester_address)
-        transfers = self.ingestion.fetch_transfers(run_date, self.config.harvester_address)
-        stake_history = self.ingestion.fetch_stake_history(run_date, self.config.harvester_address)
+        snapshot_dates: set[date] = set(processing_dates)
+        snapshot_dates.add(processing_dates[0] - timedelta(days=1))
 
-        for snapshot in snapshots:
-            self.repository.upsert_snapshot(snapshot)
-        for transfer in transfers:
-            self.repository.insert_transfer_event(run_date, transfer)
-        for event in stake_history:
-            self.repository.insert_stake_history_event(run_date, event)
+        total_snapshots = 0
+        for target_date in sorted(snapshot_dates):
+            existing = self.repository.get_snapshot_map(target_date, self.config.harvester_address)
+            if existing:
+                continue
+            snapshots = self.ingestion.fetch_snapshots(target_date, self.config.harvester_address)
+            for snapshot in snapshots:
+                self.repository.upsert_snapshot(snapshot)
+                total_snapshots += 1
+
+        for target_date in processing_dates:
+            transfers = self.ingestion.fetch_transfers(target_date, self.config.harvester_address)
+            stake_history = self.ingestion.fetch_stake_history(target_date, self.config.harvester_address)
+            for transfer in transfers:
+                self.repository.insert_transfer_event(target_date, transfer)
+            for event in stake_history:
+                self.repository.insert_stake_history_event(target_date, event)
 
         self.repository.mark_stage_completed(run_id, "ingest")
-        return len(snapshots)
+        return total_snapshots
 
-    def _stage_reconcile(self, run_id: int, run_date: date) -> int:
+    def _stage_reconcile(self, run_id: int, processing_dates: list[date]) -> int:
         if self.repository.stage_completed(run_id, "reconcile"):
             logger.info("Stage reconcile already completed for run_id=%s", run_id)
-            return self.repository.count_reconciliations(run_date, self.config.harvester_address)
-        results = self.recon_service.reconcile_day(run_date, self.config.harvester_address)
+            return sum(
+                self.repository.count_reconciliations(target_date, self.config.harvester_address)
+                for target_date in processing_dates
+            )
+        all_results = []
+        for target_date in processing_dates:
+            all_results.extend(self.recon_service.reconcile_day(target_date, self.config.harvester_address))
         self.repository.mark_stage_completed(run_id, "reconcile")
-        return len(results)
+        return len(all_results)
 
-    def _stage_plan_harvest(self, run_id: int, run_date: date, dry_run: bool) -> float:
+    def _stage_plan_harvest(self, run_id: int, run_date: date, window_start_date: date, dry_run: bool) -> float:
         if self.repository.stage_completed(run_id, "plan_harvest"):
             logger.info("Stage plan_harvest already completed for run_id=%s", run_id)
             return self.repository.get_planned_harvest_alpha(run_date, self.config.harvester_address, dry_run)
 
-        anomaly_count = self.repository.count_negative_raw_earned_anomalies(run_date, self.config.harvester_address)
-        total_estimated = self.repository.sum_estimated_earned_alpha(run_date, self.config.harvester_address)
+        anomaly_count = sum(
+            self.repository.count_negative_raw_earned_anomalies(target_date, self.config.harvester_address)
+            for target_date in self._date_range(window_start_date, run_date)
+        )
+        total_estimated = self.repository.sum_estimated_earned_alpha_between(
+            window_start_date, run_date, self.config.harvester_address
+        )
         planned_alpha = total_estimated * self.config.rules.harvest_fraction
 
         if anomaly_count > 0:
@@ -179,7 +215,16 @@ class DailyPlannerWorkflow:
         self.repository.mark_stage_completed(run_id, "plan_harvest")
         return planned_alpha
 
-    def _stage_plan_transfer_batch(self, run_id: int, run_date: date, dry_run: bool) -> bool:
+    @staticmethod
+    def _date_range(start_date: date, end_date: date) -> list[date]:
+        dates: list[date] = []
+        cursor = start_date
+        while cursor <= end_date:
+            dates.append(cursor)
+            cursor += timedelta(days=1)
+        return dates
+
+    def _stage_plan_transfer_batch(self, run_id: int, run_date: date, window_start_date: date, dry_run: bool) -> bool:
         if self.repository.stage_completed(run_id, "plan_transfer_batch"):
             logger.info("Stage plan_transfer_batch already completed for run_id=%s", run_id)
             return self.repository.has_transfer_batch(run_date, self.config.harvester_address, dry_run)
@@ -188,7 +233,9 @@ class DailyPlannerWorkflow:
             self.repository.mark_stage_completed(run_id, "plan_transfer_batch")
             return False
 
-        total_estimated = self.repository.sum_estimated_earned_alpha(run_date, self.config.harvester_address)
+        total_estimated = self.repository.sum_estimated_earned_alpha_between(
+            window_start_date, run_date, self.config.harvester_address
+        )
         expected_harvest_tao = total_estimated * self.config.rules.harvest_fraction
 
         if expected_harvest_tao < self.config.rules.transfer_batch_threshold_tao:

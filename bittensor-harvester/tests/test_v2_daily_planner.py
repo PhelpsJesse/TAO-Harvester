@@ -76,10 +76,10 @@ class TestV2DailyPlannerWorkflow(unittest.TestCase):
 
         result = self.workflow.run(run_date=run_date, dry_run=True)
 
-        self.assertEqual(result.snapshot_count, 3)
+        self.assertEqual(result.snapshot_count, 6)
         self.assertEqual(result.reconciliation_count, 3)
         self.assertGreater(result.total_estimated_earned_alpha, 0.0)
-        self.assertGreater(result.planned_harvest_alpha, 0.0)
+        self.assertEqual(result.planned_harvest_alpha, 0.0)
         self.assertFalse(result.transfer_batch_created)
 
         total_from_db = self.repository.sum_estimated_earned_alpha(run_date, self.config.harvester_address)
@@ -111,12 +111,40 @@ class TestV2DailyPlannerWorkflow(unittest.TestCase):
         harvest_plan_rows = self.repository.conn.execute("SELECT COUNT(*) AS c FROM harvest_plans").fetchone()["c"]
         stage_rows = self.repository.conn.execute("SELECT COUNT(*) AS c FROM run_stages").fetchone()["c"]
 
-        self.assertEqual(snapshot_rows, 3)
+        self.assertEqual(snapshot_rows, 6)
         self.assertEqual(transfer_rows, 1)
         self.assertEqual(stake_rows, 1)
         self.assertEqual(reconciliation_rows, 3)
         self.assertEqual(harvest_plan_rows, 1)
         self.assertEqual(stage_rows, 4)
+
+    def test_catchup_run_processes_each_missed_day(self):
+        first_date = date(2026, 3, 10)
+        catchup_date = date(2026, 3, 13)
+
+        first = self.workflow.run(run_date=first_date, dry_run=True)
+        second = self.workflow.run(run_date=catchup_date, dry_run=True)
+
+        self.assertEqual(first.reconciliation_count, 3)
+        self.assertEqual(second.reconciliation_count, 9)
+        self.assertGreater(second.total_estimated_earned_alpha, first.total_estimated_earned_alpha)
+
+        reconciliation_days = [
+            row["d"]
+            for row in self.repository.conn.execute(
+                """
+                SELECT DISTINCT reconciliation_date AS d
+                FROM reconciliations
+                WHERE wallet_address = ?
+                ORDER BY d
+                """,
+                (self.config.harvester_address,),
+            ).fetchall()
+        ]
+        self.assertEqual(
+            reconciliation_days,
+            ["2026-03-10", "2026-03-11", "2026-03-12", "2026-03-13"],
+        )
 
     def test_negative_raw_earned_alpha_blocks_harvest_plan(self):
         run_date = date(2026, 3, 10)
