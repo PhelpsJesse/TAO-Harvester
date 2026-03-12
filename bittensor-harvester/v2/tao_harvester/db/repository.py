@@ -334,6 +334,24 @@ class SQLiteRepository:
         ).fetchone()
         return bool(row)
 
+    def get_daily_earnings_by_subnet(self, reconciliation_date: date, wallet_address: str) -> list[dict[str, float | int]]:
+        rows = self.conn.execute(
+            """
+            SELECT netuid, estimated_staking_earned_alpha
+            FROM reconciliations
+            WHERE reconciliation_date = ? AND wallet_address = ?
+            ORDER BY netuid ASC
+            """,
+            (reconciliation_date.isoformat(), wallet_address),
+        ).fetchall()
+        return [
+            {
+                "netuid": int(row["netuid"]),
+                "estimated_earned_alpha": float(row["estimated_staking_earned_alpha"] or 0.0),
+            }
+            for row in rows
+        ]
+
     @staticmethod
     def build_audit_integrity_hash(event: AuditEvent) -> str:
         payload = "|".join(

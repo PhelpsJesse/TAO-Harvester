@@ -63,6 +63,7 @@ def main() -> int:
         result = workflow.run(run_date=run_date, dry_run=dry_run)
 
         if args.command == "daily-report":
+            earnings_by_subnet = repository.get_daily_earnings_by_subnet(run_date, config.harvester_address)
             report = {
                 "report_date": run_date.isoformat(),
                 "source": args.source,
@@ -72,6 +73,7 @@ def main() -> int:
                 "snapshot_count": result.snapshot_count,
                 "reconciliation_count": result.reconciliation_count,
                 "estimated_earned_alpha": result.total_estimated_earned_alpha,
+                "earnings_by_subnet": earnings_by_subnet,
                 "planned_harvest_alpha": result.planned_harvest_alpha,
                 "transfer_batch_created": result.transfer_batch_created,
             }

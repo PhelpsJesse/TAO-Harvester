@@ -54,6 +54,14 @@ class TestV2DailyPlannerWorkflow(unittest.TestCase):
         total_from_db = self.repository.sum_estimated_earned_alpha(run_date, self.config.harvester_address)
         self.assertAlmostEqual(total_from_db, result.total_estimated_earned_alpha)
 
+        by_subnet = self.repository.get_daily_earnings_by_subnet(run_date, self.config.harvester_address)
+        self.assertEqual(len(by_subnet), 3)
+        self.assertEqual(sorted(row["netuid"] for row in by_subnet), [1, 8, 19])
+        self.assertAlmostEqual(
+            sum(row["estimated_earned_alpha"] for row in by_subnet),
+            result.total_estimated_earned_alpha,
+        )
+
     def test_rerun_same_day_is_idempotent(self):
         run_date = date(2026, 3, 10)
 
