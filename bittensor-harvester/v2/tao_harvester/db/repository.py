@@ -352,6 +352,19 @@ class SQLiteRepository:
             for row in rows
         ]
 
+    def count_negative_raw_earned_anomalies(self, reconciliation_date: date, wallet_address: str) -> int:
+        row = self.conn.execute(
+            """
+            SELECT COUNT(*) AS total
+            FROM reconciliations
+            WHERE reconciliation_date = ?
+              AND wallet_address = ?
+              AND (gross_growth_alpha - net_transfers_alpha - net_manual_stake_alpha) < 0
+            """,
+            (reconciliation_date.isoformat(), wallet_address),
+        ).fetchone()
+        return int(row["total"] or 0)
+
     @staticmethod
     def build_audit_integrity_hash(event: AuditEvent) -> str:
         payload = "|".join(

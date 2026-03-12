@@ -163,6 +163,6 @@ Reference: Section 25 + pending v1.4 clarifications.
 
 - [ ] Add/verify schema migration path for current `v2` tables.
 - [x] Add idempotency test: rerun same date and confirm no duplicate stage side effects.
-- [ ] Add anomaly-block test for negative estimated staking alpha.
+- [x] Add anomaly-block test for negative estimated staking alpha.
 - [x] Add audit event model/table and wire planner stage events.
 - [ ] Add whitelist config loader + validator (no execution yet, validation only).

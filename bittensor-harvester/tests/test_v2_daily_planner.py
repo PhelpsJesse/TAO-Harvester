@@ -3,13 +3,44 @@
 import os
 import tempfile
 import unittest
-from datetime import date
+from datetime import date, datetime, timezone
 from pathlib import Path
 
 from v2.tao_harvester.adapters.taostats.mock import MockTaostatsAdapter
 from v2.tao_harvester.config.app_config import AppConfig, HarvestRules
 from v2.tao_harvester.db.repository import SQLiteRepository
+from v2.tao_harvester.domain.models import AlphaSnapshot, StakeHistoryRecord
 from v2.tao_harvester.workflows.daily_planner import DailyPlannerWorkflow
+
+
+class _NegativeAnomalyAdapter(MockTaostatsAdapter):
+    def fetch_snapshots(self, snapshot_date: date, wallet_address: str):
+        return [
+            AlphaSnapshot(
+                snapshot_date=snapshot_date,
+                wallet_address=wallet_address,
+                netuid=1,
+                alpha_balance=100.0,
+                source="mock",
+                observed_at=datetime.now(timezone.utc).replace(tzinfo=None),
+            )
+        ]
+
+    def fetch_transfers(self, snapshot_date: date, wallet_address: str):
+        return []
+
+    def fetch_stake_history(self, snapshot_date: date, wallet_address: str):
+        return [
+            StakeHistoryRecord(
+                event_id="anomaly-stake-1",
+                wallet_address=wallet_address,
+                netuid=1,
+                action="manual_stake",
+                alpha_amount=250.0,
+                occurred_at=datetime.now(timezone.utc).replace(tzinfo=None),
+                source="mock",
+            )
+        ]
 
 
 class TestV2DailyPlannerWorkflow(unittest.TestCase):
@@ -86,6 +117,35 @@ class TestV2DailyPlannerWorkflow(unittest.TestCase):
         self.assertEqual(reconciliation_rows, 3)
         self.assertEqual(harvest_plan_rows, 1)
         self.assertEqual(stage_rows, 4)
+
+    def test_negative_raw_earned_alpha_blocks_harvest_plan(self):
+        run_date = date(2026, 3, 10)
+        workflow = DailyPlannerWorkflow(
+            repository=self.repository,
+            ingestion=_NegativeAnomalyAdapter(),
+            config=self.config,
+        )
+
+        result = workflow.run(run_date=run_date, dry_run=True)
+
+        self.assertEqual(result.reconciliation_count, 1)
+        self.assertEqual(result.planned_harvest_alpha, 0.0)
+        self.assertEqual(result.total_estimated_earned_alpha, 0.0)
+
+        anomaly_count = self.repository.count_negative_raw_earned_anomalies(run_date, self.config.harvester_address)
+        self.assertEqual(anomaly_count, 1)
+
+        row = self.repository.conn.execute(
+            """
+            SELECT state, reason
+            FROM harvest_plans
+            WHERE plan_date = ? AND wallet_address = ? AND dry_run = 1
+            """,
+            (run_date.isoformat(), self.config.harvester_address),
+        ).fetchone()
+        self.assertIsNotNone(row)
+        self.assertEqual(row["state"], "skipped")
+        self.assertIn("anomaly detected", row["reason"])
 
 
 if __name__ == "__main__":

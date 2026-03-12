@@ -145,10 +145,15 @@ class DailyPlannerWorkflow:
             logger.info("Stage plan_harvest already completed for run_id=%s", run_id)
             return self.repository.get_planned_harvest_alpha(run_date, self.config.harvester_address, dry_run)
 
+        anomaly_count = self.repository.count_negative_raw_earned_anomalies(run_date, self.config.harvester_address)
         total_estimated = self.repository.sum_estimated_earned_alpha(run_date, self.config.harvester_address)
         planned_alpha = total_estimated * self.config.rules.harvest_fraction
 
-        if planned_alpha < self.config.rules.min_harvest_alpha:
+        if anomaly_count > 0:
+            state = HarvestPlanState.SKIPPED.value
+            reason = f"anomaly detected: negative raw earned alpha on {anomaly_count} subnet(s)"
+            planned_alpha = 0.0
+        elif planned_alpha < self.config.rules.min_harvest_alpha:
             state = HarvestPlanState.SKIPPED.value
             reason = (
                 f"below threshold: planned_alpha={planned_alpha:.6f} < min={self.config.rules.min_harvest_alpha:.6f}"
