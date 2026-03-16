@@ -118,6 +118,8 @@ class DailyPlannerWorkflow:
         self.repository.insert_audit_event(event)
 
     def _build_processing_dates(self, run_date: date) -> list[date]:
+        if not self.config.catchup_missed_days:
+            return [run_date]
         latest = self.repository.get_latest_reconciliation_date(self.config.harvester_address)
         if latest is None or latest >= run_date:
             return [run_date]

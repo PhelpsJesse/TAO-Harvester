@@ -16,9 +16,11 @@ pip install -r requirements.txt
 
 ### 2. Configure
 
-Create `.env` file with your settings:
+Copy `.env.example` to `.env`, then fill in your settings:
 
 ```bash
+cp .env.example .env
+
 VALIDATOR_HOTKEYS=5EWvVeoscCk6atHj5ZncAqx7u7QtfvHvCifgKyysPsYbMfmh
 TAOSTATS_API_KEY=tao-xxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx:xxxxxx
 ```

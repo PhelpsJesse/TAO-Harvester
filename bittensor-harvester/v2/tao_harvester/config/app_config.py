@@ -22,6 +22,7 @@ class AppConfig:
     kraken_deposit_whitelist: tuple[str, ...]
     rules: HarvestRules
     default_dry_run: bool = True
+    catchup_missed_days: bool = True
 
     @staticmethod
     def from_env() -> "AppConfig":
@@ -41,6 +42,7 @@ class AppConfig:
             kraken_deposit_whitelist=whitelist,
             rules=rules,
             default_dry_run=os.getenv("DRY_RUN", "true").lower() == "true",
+            catchup_missed_days=os.getenv("CATCHUP_MISSED_DAYS", "true").lower() == "true",
         )
 
 
