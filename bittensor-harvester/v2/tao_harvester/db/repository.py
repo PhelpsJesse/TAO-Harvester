@@ -12,6 +12,7 @@ from v2.tao_harvester.domain.models import (
     HarvestPlan,
     ReconciliationResult,
     StakeHistoryRecord,
+    TradeEventRecord,
     TransferBatch,
     TransferRecord,
 )
@@ -35,7 +36,16 @@ class SQLiteRepository:
         with open(schema_path, "r", encoding="utf-8") as file:
             script = file.read()
         self.conn.executescript(script)
+        self._ensure_schema_compatibility()
         self.conn.commit()
+
+    def _ensure_schema_compatibility(self) -> None:
+        columns = {
+            str(row["name"])
+            for row in self.conn.execute("PRAGMA table_info(snapshots)").fetchall()
+        }
+        if "tao_per_alpha" not in columns:
+            self.conn.execute("ALTER TABLE snapshots ADD COLUMN tao_per_alpha REAL")
 
     def get_or_create_run(self, run_date: date, workflow_name: str, tier: str, dry_run: bool) -> int:
         row = self.conn.execute(
@@ -103,16 +113,20 @@ class SQLiteRepository:
     def upsert_snapshot(self, snapshot: AlphaSnapshot) -> None:
         self.conn.execute(
             """
-            INSERT INTO snapshots (snapshot_date, wallet_address, netuid, alpha_balance, source, observed_at, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO snapshots (snapshot_date, wallet_address, netuid, alpha_balance, tao_per_alpha, source, observed_at, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT (snapshot_date, wallet_address, netuid, source)
-            DO UPDATE SET alpha_balance = excluded.alpha_balance, observed_at = excluded.observed_at
+            DO UPDATE SET
+                alpha_balance = excluded.alpha_balance,
+                tao_per_alpha = excluded.tao_per_alpha,
+                observed_at = excluded.observed_at
             """,
             (
                 snapshot.snapshot_date.isoformat(),
                 snapshot.wallet_address,
                 snapshot.netuid,
                 snapshot.alpha_balance,
+                snapshot.tao_per_alpha,
                 snapshot.source,
                 snapshot.observed_at.isoformat(),
                 self._utc_now().isoformat(),
@@ -160,6 +174,26 @@ class SQLiteRepository:
         )
         self.conn.commit()
 
+    def insert_trade_event(self, snapshot_date: date, trade: TradeEventRecord) -> None:
+        self.conn.execute(
+            """
+            INSERT OR IGNORE INTO trade_events
+            (snapshot_date, trade_id, wallet_address, netuid, direction, alpha_amount, occurred_at, source)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                snapshot_date.isoformat(),
+                trade.trade_id,
+                trade.wallet_address,
+                trade.netuid,
+                trade.direction,
+                trade.alpha_amount,
+                trade.occurred_at.isoformat(),
+                trade.source,
+            ),
+        )
+        self.conn.commit()
+
     def get_snapshot_map(self, snapshot_date: date, wallet_address: str) -> dict[int, float]:
         rows = self.conn.execute(
             """
@@ -170,6 +204,47 @@ class SQLiteRepository:
             (snapshot_date.isoformat(), wallet_address),
         ).fetchall()
         return {int(row["netuid"]): float(row["alpha_balance"]) for row in rows}
+
+    def has_snapshot_missing_tao_rates(self, snapshot_date: date, wallet_address: str) -> bool:
+        row = self.conn.execute(
+            """
+            SELECT COUNT(*) AS total
+            FROM snapshots
+            WHERE snapshot_date = ?
+              AND wallet_address = ?
+              AND (tao_per_alpha IS NULL OR tao_per_alpha <= 0)
+            """,
+            (snapshot_date.isoformat(), wallet_address),
+        ).fetchone()
+        return int(row["total"] or 0) > 0
+
+    def get_latest_snapshot_date_before(self, snapshot_date: date, wallet_address: str) -> date | None:
+        row = self.conn.execute(
+            """
+            SELECT MAX(snapshot_date) AS max_date
+            FROM snapshots
+            WHERE wallet_address = ? AND snapshot_date < ?
+            """,
+            (wallet_address, snapshot_date.isoformat()),
+        ).fetchone()
+        raw = row["max_date"] if row else None
+        if not raw:
+            return None
+        return date.fromisoformat(str(raw))
+
+    def get_snapshot_observed_at(self, snapshot_date: date, wallet_address: str) -> datetime | None:
+        row = self.conn.execute(
+            """
+            SELECT MAX(observed_at) AS observed_at
+            FROM snapshots
+            WHERE snapshot_date = ? AND wallet_address = ?
+            """,
+            (snapshot_date.isoformat(), wallet_address),
+        ).fetchone()
+        raw = row["observed_at"] if row else None
+        if not raw:
+            return None
+        return datetime.fromisoformat(str(raw))
 
     def get_transfer_net_by_netuid(self, snapshot_date: date, wallet_address: str) -> dict[int, float]:
         rows = self.conn.execute(
@@ -193,9 +268,40 @@ class SQLiteRepository:
                        WHEN action = 'manual_unstake' THEN -alpha_amount
                        ELSE 0
                    END) AS net_amount
-            FROM stake_history_events
-            WHERE snapshot_date = ? AND wallet_address = ?
+            FROM stake_history_events she
+            WHERE she.snapshot_date = ?
+              AND she.wallet_address = ?
+              AND NOT EXISTS (
+                  SELECT 1
+                  FROM trade_events te
+                  WHERE te.snapshot_date = she.snapshot_date
+                    AND te.wallet_address = she.wallet_address
+                    AND te.netuid = she.netuid
+                    AND te.trade_id LIKE she.event_id || '-%'
+              )
             GROUP BY netuid
+            """,
+            (snapshot_date.isoformat(), wallet_address),
+        ).fetchall()
+        return {int(row["netuid"]): float(row["net_amount"] or 0.0) for row in rows}
+
+    def get_trade_net_by_netuid(self, snapshot_date: date, wallet_address: str) -> dict[int, float]:
+        rows = self.conn.execute(
+            """
+            SELECT te.netuid,
+                   SUM(CASE
+                       WHEN te.direction = 'buy_alpha' THEN COALESCE(she.alpha_amount, te.alpha_amount)
+                       WHEN te.direction = 'sell_alpha' THEN -COALESCE(she.alpha_amount, te.alpha_amount)
+                       ELSE 0
+                   END) AS net_amount
+            FROM trade_events te
+            LEFT JOIN stake_history_events she
+              ON she.snapshot_date = te.snapshot_date
+             AND she.wallet_address = te.wallet_address
+             AND she.netuid = te.netuid
+             AND te.trade_id LIKE she.event_id || '-%'
+            WHERE te.snapshot_date = ? AND te.wallet_address = ?
+            GROUP BY te.netuid
             """,
             (snapshot_date.isoformat(), wallet_address),
         ).fetchall()
@@ -207,15 +313,17 @@ class SQLiteRepository:
             INSERT INTO reconciliations (
                 reconciliation_date, wallet_address, netuid,
                 previous_alpha, current_alpha, gross_growth_alpha,
+                net_trade_adjustment_alpha,
                 net_transfers_alpha, net_manual_stake_alpha,
                 estimated_staking_earned_alpha, notes, created_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT (reconciliation_date, wallet_address, netuid)
             DO UPDATE SET
                 previous_alpha = excluded.previous_alpha,
                 current_alpha = excluded.current_alpha,
                 gross_growth_alpha = excluded.gross_growth_alpha,
+                net_trade_adjustment_alpha = excluded.net_trade_adjustment_alpha,
                 net_transfers_alpha = excluded.net_transfers_alpha,
                 net_manual_stake_alpha = excluded.net_manual_stake_alpha,
                 estimated_staking_earned_alpha = excluded.estimated_staking_earned_alpha,
@@ -228,6 +336,7 @@ class SQLiteRepository:
                 result.previous_alpha,
                 result.current_alpha,
                 result.gross_growth_alpha,
+                result.net_trade_adjustment_alpha,
                 result.net_transfers_alpha,
                 result.net_manual_stake_alpha,
                 result.estimated_staking_earned_alpha,
@@ -310,6 +419,24 @@ class SQLiteRepository:
         ).fetchone()
         return float(row["total"] or 0.0)
 
+    def sum_estimated_earned_tao_between(self, start_date: date, end_date: date, wallet_address: str) -> float:
+        rows = self.conn.execute(
+            """
+            SELECT r.estimated_staking_earned_alpha AS est_alpha,
+                   COALESCE((
+                       SELECT MAX(s.tao_per_alpha)
+                       FROM snapshots s
+                       WHERE s.snapshot_date = r.reconciliation_date
+                         AND s.wallet_address = r.wallet_address
+                         AND s.netuid = r.netuid
+                   ), 0.0) AS tao_per_alpha
+            FROM reconciliations r
+            WHERE r.reconciliation_date >= ? AND r.reconciliation_date <= ? AND r.wallet_address = ?
+            """,
+            (start_date.isoformat(), end_date.isoformat(), wallet_address),
+        ).fetchall()
+        return float(sum(float(row["est_alpha"] or 0.0) * float(row["tao_per_alpha"] or 0.0) for row in rows))
+
     def get_latest_reconciliation_date(self, wallet_address: str) -> date | None:
         row = self.conn.execute(
             """
@@ -377,6 +504,45 @@ class SQLiteRepository:
             for row in rows
         ]
 
+    def get_daily_earnings_by_subnet_with_tao(
+        self,
+        reconciliation_date: date,
+        wallet_address: str,
+        harvest_fraction: float,
+    ) -> list[dict[str, float | int]]:
+        rows = self.conn.execute(
+            """
+            SELECT r.netuid,
+                   r.estimated_staking_earned_alpha AS estimated_earned_alpha,
+                   COALESCE((
+                       SELECT MAX(s.tao_per_alpha)
+                       FROM snapshots s
+                       WHERE s.snapshot_date = r.reconciliation_date
+                         AND s.wallet_address = r.wallet_address
+                         AND s.netuid = r.netuid
+                   ), 0.0) AS tao_per_alpha
+            FROM reconciliations r
+            WHERE r.reconciliation_date = ? AND r.wallet_address = ?
+            ORDER BY r.netuid ASC
+            """,
+            (reconciliation_date.isoformat(), wallet_address),
+        ).fetchall()
+        output: list[dict[str, float | int]] = []
+        for row in rows:
+            est_alpha = float(row["estimated_earned_alpha"] or 0.0)
+            tao_per_alpha = float(row["tao_per_alpha"] or 0.0)
+            est_tao = est_alpha * tao_per_alpha
+            output.append(
+                {
+                    "netuid": int(row["netuid"]),
+                    "estimated_earned_alpha": est_alpha,
+                    "tao_per_alpha": tao_per_alpha,
+                    "estimated_earned_tao": est_tao,
+                    "harvestable_tao": est_tao * harvest_fraction,
+                }
+            )
+        return output
+
     def count_negative_raw_earned_anomalies(self, reconciliation_date: date, wallet_address: str) -> int:
         row = self.conn.execute(
             """
@@ -384,7 +550,7 @@ class SQLiteRepository:
             FROM reconciliations
             WHERE reconciliation_date = ?
               AND wallet_address = ?
-              AND (gross_growth_alpha - net_transfers_alpha - net_manual_stake_alpha) < 0
+                            AND (gross_growth_alpha - net_trade_adjustment_alpha - net_transfers_alpha) < 0
             """,
             (reconciliation_date.isoformat(), wallet_address),
         ).fetchone()

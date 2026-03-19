@@ -4,9 +4,9 @@ Short navigation for the repository.
 
 Files you will likely use first:
 
-- `REQUIREMENTS_SPEC_v1.3.md` — Active configuration-control requirements baseline
+- `REQUIREMENTS_SPEC_v1.5.md` — Active configuration-control requirements baseline
 - `LESSONS_LEARNED_PRESERVED_2026-03-10.md` — Preserved pre-rewrite lessons from existing code
-- `IMPLEMENTATION_CHECKLIST_v1.3.md` — Prioritized Phase 1/2/3 implementation plan under v1.3 controls
+- `IMPLEMENTATION_CHECKLIST_v1.5.md` — Prioritized Phase 1/2/3 implementation plan under v1.5 controls
 - `QUICKSTART.md` — Quick setup and run commands
 - `README.md` — Full documentation and architecture
 - `IMPLEMENTATION_GUIDE.md` — How to implement real Substrate and Kraken APIs

@@ -29,6 +29,7 @@ CREATE TABLE IF NOT EXISTS snapshots (
     wallet_address TEXT NOT NULL,
     netuid INTEGER NOT NULL,
     alpha_balance REAL NOT NULL,
+    tao_per_alpha REAL,
     source TEXT NOT NULL,
     observed_at TEXT NOT NULL,
     created_at TEXT NOT NULL,
@@ -61,6 +62,19 @@ CREATE TABLE IF NOT EXISTS stake_history_events (
     UNIQUE (event_id, source)
 );
 
+CREATE TABLE IF NOT EXISTS trade_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    snapshot_date TEXT NOT NULL,
+    trade_id TEXT NOT NULL,
+    wallet_address TEXT NOT NULL,
+    netuid INTEGER NOT NULL,
+    direction TEXT NOT NULL,
+    alpha_amount REAL NOT NULL,
+    occurred_at TEXT NOT NULL,
+    source TEXT NOT NULL,
+    UNIQUE (trade_id, source)
+);
+
 CREATE TABLE IF NOT EXISTS reconciliations (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     reconciliation_date TEXT NOT NULL,
@@ -69,6 +83,7 @@ CREATE TABLE IF NOT EXISTS reconciliations (
     previous_alpha REAL NOT NULL,
     current_alpha REAL NOT NULL,
     gross_growth_alpha REAL NOT NULL,
+    net_trade_adjustment_alpha REAL NOT NULL,
     net_transfers_alpha REAL NOT NULL,
     net_manual_stake_alpha REAL NOT NULL,
     estimated_staking_earned_alpha REAL NOT NULL,

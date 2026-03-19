@@ -133,6 +133,30 @@ class _FakeSession:
                 }
             )
 
+        if url.endswith("/api/call/v1"):
+            full_name = params.get("full_name")
+            if full_name and full_name != "SubtensorModule.add_stake_limit":
+                return _FakeResponse({"data": [], "pagination": {"next_page": None}})
+            return _FakeResponse(
+                {
+                    "data": [
+                        {
+                            "id": "trade-buy-1",
+                            "full_name": "SubtensorModule.add_stake_limit",
+                            "timestamp": "2026-03-10T14:00:00Z",
+                            "args": {"netuid": "2", "amountStaked": 3_500_000_000, "limitPrice": 1_000_000_000},
+                        },
+                        {
+                            "id": "not-a-swap",
+                            "full_name": "Utility.batch_all",
+                            "timestamp": "2026-03-10T14:30:00Z",
+                            "args": {},
+                        },
+                    ],
+                    "pagination": {"next_page": None},
+                }
+            )
+
         return _FakeResponse({"data": [], "pagination": {"next_page": None}})
 
 
@@ -145,7 +169,25 @@ class _ErrorSession:
 
 
 class TestTaostatsHttpAdapter(unittest.TestCase):
-    def test_maps_snapshots_transfers_and_stake_history(self):
+    def test_add_stake_limit_amount_converts_tao_to_alpha(self):
+        adapter = TaostatsHttpAdapter(base_url="https://api.taostats.io", api_key="test-key", timeout_sec=15)
+        alpha = adapter._extract_trade_alpha_amount(
+            direction="buy_alpha",
+            full_name="SubtensorModule.add_stake_limit",
+            args={"amountStaked": "2000000000", "limitPrice": "4000000"},
+        )
+        self.assertAlmostEqual(float(alpha), 500.0)
+
+    def test_add_stake_limit_missing_limit_price_uses_zero_alpha_placeholder(self):
+        adapter = TaostatsHttpAdapter(base_url="https://api.taostats.io", api_key="test-key", timeout_sec=15)
+        alpha = adapter._extract_trade_alpha_amount(
+            direction="buy_alpha",
+            full_name="SubtensorModule.add_stake_limit",
+            args={"amountStaked": "2000000000"},
+        )
+        self.assertAlmostEqual(float(alpha), 0.0)
+
+    def test_maps_snapshots_transfers_stake_history_and_trade_events(self):
         wallet = "5WalletForTest"
         adapter = TaostatsHttpAdapter(base_url="https://api.taostats.io", api_key="test-key", timeout_sec=15)
         fake_session = _FakeSession(wallet_address=wallet)
@@ -156,6 +198,7 @@ class TestTaostatsHttpAdapter(unittest.TestCase):
         snapshots = adapter.fetch_snapshots(run_date, wallet)
         transfers = adapter.fetch_transfers(run_date, wallet)
         stake_events = adapter.fetch_stake_history(run_date, wallet)
+        trade_events = adapter.fetch_trade_events(date(2026, 3, 10), wallet)
 
         self.assertEqual(len(snapshots), 2)
         self.assertEqual(snapshots[0].netuid, 1)
@@ -179,10 +222,28 @@ class TestTaostatsHttpAdapter(unittest.TestCase):
         self.assertEqual(stake_events[2].action, "manual_stake")
         self.assertAlmostEqual(stake_events[2].alpha_amount, 0.125)
 
+        self.assertEqual(len(trade_events), 1)
+        self.assertEqual(trade_events[0].trade_id, "trade-buy-1")
+        self.assertEqual(trade_events[0].direction, "buy_alpha")
+        self.assertEqual(trade_events[0].netuid, 2)
+        self.assertAlmostEqual(trade_events[0].alpha_amount, 3.5)
+
         transfer_calls = [call for call in fake_session.calls if call[0].endswith("/api/transfer/v1")]
         self.assertEqual(len(transfer_calls), 2)
+        self.assertEqual(transfer_calls[0][1].get("address"), wallet)
+        self.assertIsNone(transfer_calls[0][1].get("nominator"))
         self.assertEqual(transfer_calls[0][1].get("page"), 1)
         self.assertEqual(transfer_calls[1][1].get("page"), 2)
+
+        delegation_calls = [call for call in fake_session.calls if call[0].endswith("/api/delegation/v1")]
+        self.assertGreaterEqual(len(delegation_calls), 1)
+        self.assertEqual(delegation_calls[0][1].get("nominator"), wallet)
+        self.assertIsNone(delegation_calls[0][1].get("address"))
+
+        call_calls = [call for call in fake_session.calls if call[0].endswith("/api/call/v1")]
+        self.assertGreaterEqual(len(call_calls), 1)
+        self.assertEqual(call_calls[0][1].get("origin_address"), wallet)
+        self.assertIsNone(call_calls[0][1].get("address"))
 
         self.assertEqual(adapter.session.headers.get("Authorization"), "test-key")
 
@@ -201,34 +262,35 @@ class TestTaostatsHttpAdapter(unittest.TestCase):
         self.assertEqual(snapshots[1].netuid, 2)
         self.assertAlmostEqual(snapshots[1].alpha_balance, 4.0)
 
-    def test_fetches_historical_snapshots_for_older_dates(self):
+    def test_rejects_historical_backfill_for_older_dates(self):
         wallet = "5WalletForTest"
         adapter = TaostatsHttpAdapter(base_url="https://api.taostats.io", api_key="test-key", timeout_sec=15)
         fake_session = _FakeSession(wallet_address=wallet)
         fake_session.headers.update(adapter.session.headers)
         adapter.session = fake_session
 
-        snapshots = adapter.fetch_snapshots(date(2026, 3, 10), wallet)
+        with self.assertRaises(RuntimeError) as ctx:
+            adapter.fetch_snapshots(date(2026, 3, 10), wallet)
 
-        self.assertEqual(len(snapshots), 2)
-        self.assertTrue(all(s.alpha_balance == 2.75 for s in snapshots))
+        self.assertIn("Historical backfill is disabled", str(ctx.exception))
         history_calls = [call for call in fake_session.calls if call[0].endswith("/api/dtao/stake_balance/history/v1")]
-        self.assertEqual(len(history_calls), 2)
+        self.assertEqual(len(history_calls), 0)
 
-    def test_returns_empty_lists_when_http_calls_fail(self):
+    def test_fails_closed_when_http_calls_fail(self):
         wallet = "5WalletForTest"
         adapter = TaostatsHttpAdapter(base_url="https://api.taostats.io", api_key="test-key", timeout_sec=15)
         adapter.session = _ErrorSession()
 
         run_date = date(2026, 3, 10)
 
-        snapshots = adapter.fetch_snapshots(run_date, wallet)
-        transfers = adapter.fetch_transfers(run_date, wallet)
-        stake_events = adapter.fetch_stake_history(run_date, wallet)
-
-        self.assertEqual(snapshots, [])
-        self.assertEqual(transfers, [])
-        self.assertEqual(stake_events, [])
+        with self.assertRaises(RuntimeError):
+            adapter.fetch_snapshots(run_date, wallet)
+        with self.assertRaises(RuntimeError):
+            adapter.fetch_transfers(run_date, wallet)
+        with self.assertRaises(RuntimeError):
+            adapter.fetch_stake_history(run_date, wallet)
+        with self.assertRaises(RuntimeError):
+            adapter.fetch_trade_events(run_date, wallet)
 
 
 if __name__ == "__main__":

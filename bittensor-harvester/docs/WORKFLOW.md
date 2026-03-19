@@ -1,5 +1,11 @@
 # Bittensor TAO Harvester - Simplified Workflow
 
+> Status: Legacy reference document.
+>
+> The active controlled baseline is `docs/REQUIREMENTS_SPEC_v1.5.md`.
+> Current Tier 1 runtime behavior is implemented under `v2/tao_harvester` and documented in `v2/README.md`.
+> If this document conflicts with v1.5 requirements or the v2 implementation, follow the v1.5 requirements.
+
 ## Overview
 
 Track daily alpha emissions → Convert to TAO → Sell for USD → Withdraw to bank

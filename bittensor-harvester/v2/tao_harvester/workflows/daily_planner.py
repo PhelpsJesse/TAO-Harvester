@@ -30,6 +30,7 @@ class DailyPlannerResult:
 class DailyPlannerWorkflow:
     WORKFLOW_NAME = "daily_planner"
     TIER = "tier1"
+    MAX_AUTOMATED_BACKFILL_DAYS = 7
 
     def __init__(self, repository: SQLiteRepository, ingestion: TaostatsIngestionPort, config: AppConfig):
         self.repository = repository
@@ -123,6 +124,14 @@ class DailyPlannerWorkflow:
         latest = self.repository.get_latest_reconciliation_date(self.config.harvester_address)
         if latest is None or latest >= run_date:
             return [run_date]
+
+        missing_days = (run_date - latest).days
+        if missing_days > self.MAX_AUTOMATED_BACKFILL_DAYS:
+            raise ValueError(
+                "manual reconciliation required: automated backfill window exceeded "
+                f"({missing_days} days > {self.MAX_AUTOMATED_BACKFILL_DAYS} days)"
+            )
+
         dates: list[date] = []
         cursor = latest + timedelta(days=1)
         while cursor <= run_date:
@@ -142,7 +151,11 @@ class DailyPlannerWorkflow:
         total_snapshots = 0
         for target_date in sorted(snapshot_dates):
             existing = self.repository.get_snapshot_map(target_date, self.config.harvester_address)
-            if existing:
+            missing_rates = bool(existing) and self.repository.has_snapshot_missing_tao_rates(
+                target_date,
+                self.config.harvester_address,
+            )
+            if existing and not missing_rates:
                 continue
             snapshots = self.ingestion.fetch_snapshots(target_date, self.config.harvester_address)
             for snapshot in snapshots:
@@ -150,12 +163,34 @@ class DailyPlannerWorkflow:
                 total_snapshots += 1
 
         for target_date in processing_dates:
-            transfers = self.ingestion.fetch_transfers(target_date, self.config.harvester_address)
-            stake_history = self.ingestion.fetch_stake_history(target_date, self.config.harvester_address)
+            previous_date = self.repository.get_latest_snapshot_date_before(target_date, self.config.harvester_address)
+            window_start = self.repository.get_snapshot_observed_at(previous_date, self.config.harvester_address) if previous_date else None
+            window_end = self.repository.get_snapshot_observed_at(target_date, self.config.harvester_address)
+
+            transfers = self.ingestion.fetch_transfers(
+                target_date,
+                self.config.harvester_address,
+                window_start=window_start,
+                window_end=window_end,
+            )
+            stake_history = self.ingestion.fetch_stake_history(
+                target_date,
+                self.config.harvester_address,
+                window_start=window_start,
+                window_end=window_end,
+            )
+            trade_events = self.ingestion.fetch_trade_events(
+                target_date,
+                self.config.harvester_address,
+                window_start=window_start,
+                window_end=window_end,
+            )
             for transfer in transfers:
                 self.repository.insert_transfer_event(target_date, transfer)
             for event in stake_history:
                 self.repository.insert_stake_history_event(target_date, event)
+            for trade in trade_events:
+                self.repository.insert_trade_event(target_date, trade)
 
         self.repository.mark_stage_completed(run_id, "ingest")
         return total_snapshots
@@ -185,7 +220,11 @@ class DailyPlannerWorkflow:
         total_estimated = self.repository.sum_estimated_earned_alpha_between(
             window_start_date, run_date, self.config.harvester_address
         )
+        total_estimated_tao = self.repository.sum_estimated_earned_tao_between(
+            window_start_date, run_date, self.config.harvester_address
+        )
         planned_alpha = total_estimated * self.config.rules.harvest_fraction
+        planned_tao = total_estimated_tao * self.config.rules.harvest_fraction
 
         if anomaly_count > 0:
             state = HarvestPlanState.SKIPPED.value
@@ -201,7 +240,7 @@ class DailyPlannerWorkflow:
             state = HarvestPlanState.DRAFT.value
             reason = "dry-run plan created"
 
-        estimated_tao_out = min(planned_alpha, self.config.rules.max_harvest_tao_per_run)
+        estimated_tao_out = min(planned_tao, self.config.rules.max_harvest_tao_per_run)
         plan = HarvestPlan(
             plan_date=run_date,
             wallet_address=self.config.harvester_address,
@@ -238,7 +277,10 @@ class DailyPlannerWorkflow:
         total_estimated = self.repository.sum_estimated_earned_alpha_between(
             window_start_date, run_date, self.config.harvester_address
         )
-        expected_harvest_tao = total_estimated * self.config.rules.harvest_fraction
+        total_estimated_tao = self.repository.sum_estimated_earned_tao_between(
+            window_start_date, run_date, self.config.harvester_address
+        )
+        expected_harvest_tao = total_estimated_tao * self.config.rules.harvest_fraction
 
         if expected_harvest_tao < self.config.rules.transfer_batch_threshold_tao:
             self.repository.mark_stage_completed(run_id, "plan_transfer_batch")

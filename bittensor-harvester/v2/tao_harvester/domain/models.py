@@ -12,6 +12,7 @@ class AlphaSnapshot:
     alpha_balance: float
     source: str
     observed_at: datetime
+    tao_per_alpha: float | None = 1.0
 
 
 @dataclass(frozen=True)
@@ -37,6 +38,17 @@ class StakeHistoryRecord:
 
 
 @dataclass(frozen=True)
+class TradeEventRecord:
+    trade_id: str
+    wallet_address: str
+    netuid: int
+    direction: str
+    alpha_amount: float
+    occurred_at: datetime
+    source: str
+
+
+@dataclass(frozen=True)
 class ReconciliationResult:
     reconciliation_date: date
     wallet_address: str
@@ -44,6 +56,7 @@ class ReconciliationResult:
     previous_alpha: float
     current_alpha: float
     gross_growth_alpha: float
+    net_trade_adjustment_alpha: float
     net_transfers_alpha: float
     net_manual_stake_alpha: float
     estimated_staking_earned_alpha: float

@@ -41,6 +41,11 @@ For a clean restart, the best path is:
 4. **Daily snapshot accounting direction**
    - The delta model (today - yesterday - transfers) is operationally simpler and robust for once-daily runs.
 
+5. **Unattended resiliency must be a first-class requirement**
+   - OpenClaw automation cannot rely on optimistic retry behavior alone.
+   - High-fanout backfill paths must have bounded retries, deterministic fail-closed outcomes, and explicit manual-retry offramps.
+   - Partial upstream data or rate-limit conditions must never be surfaced as successful harvestable output.
+
 ---
 
 ## Main Problems Observed (Do Not Carry Forward)
@@ -68,6 +73,10 @@ For a clean restart, the best path is:
 6. **Test mismatch with current code**
    - Test fixtures instantiate classes with outdated signatures/imports.
    - Tests no longer validate the current system behavior end-to-end.
+
+7. **Rate-limit resilience was under-specified**
+   - Retry logic existed conceptually, but unattended runtime behavior under repeated `429` responses was not defined tightly enough.
+   - Requirement and checklist language must explicitly require bounded retries, persisted run outcome states, and debug offramps.
 
 ---
 
@@ -125,6 +134,10 @@ For a clean restart, the best path is:
 
 5. **MVP schema only**
    - Keep core tables required by your prompt and add others only when a feature is live.
+
+6. **Automation must be debuggable by design**
+   - Every unattended run should leave enough persisted state and logs to explain whether it completed, deferred, or requires manual reconciliation.
+   - Operator guidance should be explicit, not inferred from stack traces.
 
 ---
 

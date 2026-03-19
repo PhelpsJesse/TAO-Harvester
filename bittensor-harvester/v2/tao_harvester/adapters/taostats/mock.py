@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import date, datetime, timezone
 
 from v2.tao_harvester.adapters.taostats.base import TaostatsIngestionPort
-from v2.tao_harvester.domain.models import AlphaSnapshot, StakeHistoryRecord, TransferRecord
+from v2.tao_harvester.domain.models import AlphaSnapshot, StakeHistoryRecord, TradeEventRecord, TransferRecord
 
 
 class MockTaostatsAdapter(TaostatsIngestionPort):
@@ -24,11 +24,18 @@ class MockTaostatsAdapter(TaostatsIngestionPort):
                 alpha_balance=amount + drift,
                 source=self.source_name,
                 observed_at=datetime.now(timezone.utc).replace(tzinfo=None),
-            )
+                    tao_per_alpha=1.0,
+                )
             for netuid, amount in base.items()
         ]
 
-    def fetch_transfers(self, snapshot_date: date, wallet_address: str) -> list[TransferRecord]:
+    def fetch_transfers(
+        self,
+        snapshot_date: date,
+        wallet_address: str,
+        window_start: datetime | None = None,
+        window_end: datetime | None = None,
+    ) -> list[TransferRecord]:
         return [
             TransferRecord(
                 transfer_id=f"mock-transfer-{snapshot_date.isoformat()}-n8",
@@ -41,7 +48,13 @@ class MockTaostatsAdapter(TaostatsIngestionPort):
             )
         ]
 
-    def fetch_stake_history(self, snapshot_date: date, wallet_address: str) -> list[StakeHistoryRecord]:
+    def fetch_stake_history(
+        self,
+        snapshot_date: date,
+        wallet_address: str,
+        window_start: datetime | None = None,
+        window_end: datetime | None = None,
+    ) -> list[StakeHistoryRecord]:
         return [
             StakeHistoryRecord(
                 event_id=f"mock-stake-{snapshot_date.isoformat()}-n1",
@@ -53,3 +66,12 @@ class MockTaostatsAdapter(TaostatsIngestionPort):
                 source=self.source_name,
             )
         ]
+
+    def fetch_trade_events(
+        self,
+        snapshot_date: date,
+        wallet_address: str,
+        window_start: datetime | None = None,
+        window_end: datetime | None = None,
+    ) -> list[TradeEventRecord]:
+        return []
