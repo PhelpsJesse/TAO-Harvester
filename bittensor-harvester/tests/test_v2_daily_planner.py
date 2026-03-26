@@ -10,7 +10,7 @@ from v2.tao_harvester.adapters.taostats.mock import MockTaostatsAdapter
 from v2.tao_harvester.config.app_config import AppConfig, HarvestRules
 from v2.tao_harvester.db.repository import SQLiteRepository
 from v2.tao_harvester.domain.models import AlphaSnapshot, StakeHistoryRecord, TradeEventRecord
-from v2.tao_harvester.workflows.daily_planner import DailyPlannerWorkflow
+from v2.tao_harvester.workflows.daily_planner import DailyPlannerWorkflow, ManualInterventionRequired
 
 
 class _NegativeAnomalyAdapter(MockTaostatsAdapter):
@@ -304,7 +304,7 @@ class TestV2DailyPlannerWorkflow(unittest.TestCase):
 
         self.workflow.run(run_date=first_date, dry_run=True)
 
-        with self.assertRaises(ValueError) as ctx:
+        with self.assertRaises(ManualInterventionRequired) as ctx:
             self.workflow.run(run_date=too_far_date, dry_run=True)
         self.assertIn("manual reconciliation required", str(ctx.exception))
         self.assertIn("automated backfill window exceeded", str(ctx.exception))

@@ -1,5 +1,12 @@
 # TAO Harvester - Complete Process Flow
 
+> **Status: Legacy reference document** — describes the pre-v1.5 single-tier
+> architecture. Steps 5–6 (Kraken TAO→USD sale, USD withdrawal) are NOT active
+> workflow stages under v1.5. Under the current baseline, exchange trading
+> (Tier 2) and withdrawals (Tier 3) are governed by
+> `docs/REQUIREMENTS_SPEC_v1.5.md` Section 16. This document is retained for
+> historical context only; do not use it as implementation guidance.
+
 ```
 ┌─────────────────────────────────────────────────────────────────────────┐
 │                    STEP 1: DATA COLLECTION & TRACKING                    │

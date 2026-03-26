@@ -5,6 +5,7 @@ class RunStatus(str, Enum):
     STARTED = "started"
     COMPLETED = "completed"
     FAILED = "failed"
+    MANUAL_INTERVENTION_REQUIRED = "manual_intervention_required"
 
 
 class HarvestPlanState(str, Enum):

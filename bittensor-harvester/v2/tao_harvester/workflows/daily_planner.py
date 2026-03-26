@@ -14,6 +14,10 @@ from v2.tao_harvester.domain.enums import HarvestPlanState, TransferBatchState
 from v2.tao_harvester.domain.models import AuditEvent, HarvestPlan, TransferBatch
 from v2.tao_harvester.services.reconciliation import ReconciliationService
 
+
+class ManualInterventionRequired(Exception):
+    """Raised when a run cannot proceed without operator action (e.g. backfill window exceeded)."""
+
 logger = logging.getLogger(__name__)
 
 
@@ -74,6 +78,15 @@ class DailyPlannerWorkflow:
                 planned_harvest_alpha=planned_harvest_alpha,
                 transfer_batch_created=transfer_batch_created,
             )
+        except ManualInterventionRequired as exc:
+            self.repository.mark_run_manual_intervention_required(run_id, str(exc))
+            self._audit(
+                event_type="run_manual_intervention_required",
+                input_params={"run_id": run_id},
+                result="manual_intervention_required",
+                error_message=str(exc),
+            )
+            raise
         except Exception as exc:
             self.repository.mark_run_failed(run_id, str(exc))
             self._audit(
@@ -127,8 +140,8 @@ class DailyPlannerWorkflow:
 
         missing_days = (run_date - latest).days
         if missing_days > self.MAX_AUTOMATED_BACKFILL_DAYS:
-            raise ValueError(
-                "manual reconciliation required: automated backfill window exceeded "
+            raise ManualInterventionRequired(
+                "automated backfill window exceeded: manual reconciliation required "
                 f"({missing_days} days > {self.MAX_AUTOMATED_BACKFILL_DAYS} days)"
             )
 

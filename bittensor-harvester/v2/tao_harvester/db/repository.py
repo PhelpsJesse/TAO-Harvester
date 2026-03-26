@@ -40,12 +40,187 @@ class SQLiteRepository:
         self.conn.commit()
 
     def _ensure_schema_compatibility(self) -> None:
-        columns = {
-            str(row["name"])
-            for row in self.conn.execute("PRAGMA table_info(snapshots)").fetchall()
-        }
-        if "tao_per_alpha" not in columns:
-            self.conn.execute("ALTER TABLE snapshots ADD COLUMN tao_per_alpha REAL")
+        self._migrate_real_to_text_if_needed()
+
+    def _migrate_real_to_text_if_needed(self) -> None:
+        """Migrate financial REAL columns to TEXT for spec Section 11 compliance.
+
+        Uses rename-recreate-copy-drop pattern because SQLite does not support
+        ALTER COLUMN. Existing data is preserved; REAL values are cast to TEXT
+        via CAST(col AS TEXT) which produces the same decimal representation
+        SQLite stored. Migration is idempotent: skipped if column type is already TEXT.
+        """
+        _MIGRATIONS = [
+            (
+                "snapshots",
+                "alpha_balance",
+                """CREATE TABLE snapshots_new (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    snapshot_date TEXT NOT NULL,
+                    wallet_address TEXT NOT NULL,
+                    netuid INTEGER NOT NULL,
+                    alpha_balance TEXT NOT NULL,
+                    tao_per_alpha TEXT,
+                    source TEXT NOT NULL,
+                    observed_at TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    UNIQUE (snapshot_date, wallet_address, netuid, source)
+                )""",
+                """INSERT INTO snapshots_new
+                   SELECT id, snapshot_date, wallet_address, netuid,
+                          CAST(alpha_balance AS TEXT),
+                          CASE WHEN tao_per_alpha IS NULL THEN NULL ELSE CAST(tao_per_alpha AS TEXT) END,
+                          source, observed_at, created_at
+                   FROM snapshots""",
+            ),
+            (
+                "transfer_events",
+                "alpha_amount",
+                """CREATE TABLE transfer_events_new (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    snapshot_date TEXT NOT NULL,
+                    transfer_id TEXT NOT NULL,
+                    wallet_address TEXT NOT NULL,
+                    netuid INTEGER NOT NULL,
+                    direction TEXT NOT NULL,
+                    alpha_amount TEXT NOT NULL,
+                    occurred_at TEXT NOT NULL,
+                    source TEXT NOT NULL,
+                    UNIQUE (transfer_id, source)
+                )""",
+                """INSERT INTO transfer_events_new
+                   SELECT id, snapshot_date, transfer_id, wallet_address, netuid,
+                          direction, CAST(alpha_amount AS TEXT), occurred_at, source
+                   FROM transfer_events""",
+            ),
+            (
+                "stake_history_events",
+                "alpha_amount",
+                """CREATE TABLE stake_history_events_new (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    snapshot_date TEXT NOT NULL,
+                    event_id TEXT NOT NULL,
+                    wallet_address TEXT NOT NULL,
+                    netuid INTEGER NOT NULL,
+                    action TEXT NOT NULL,
+                    alpha_amount TEXT NOT NULL,
+                    occurred_at TEXT NOT NULL,
+                    source TEXT NOT NULL,
+                    UNIQUE (event_id, source)
+                )""",
+                """INSERT INTO stake_history_events_new
+                   SELECT id, snapshot_date, event_id, wallet_address, netuid,
+                          action, CAST(alpha_amount AS TEXT), occurred_at, source
+                   FROM stake_history_events""",
+            ),
+            (
+                "trade_events",
+                "alpha_amount",
+                """CREATE TABLE trade_events_new (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    snapshot_date TEXT NOT NULL,
+                    trade_id TEXT NOT NULL,
+                    wallet_address TEXT NOT NULL,
+                    netuid INTEGER NOT NULL,
+                    direction TEXT NOT NULL,
+                    alpha_amount TEXT NOT NULL,
+                    occurred_at TEXT NOT NULL,
+                    source TEXT NOT NULL,
+                    UNIQUE (trade_id, source)
+                )""",
+                """INSERT INTO trade_events_new
+                   SELECT id, snapshot_date, trade_id, wallet_address, netuid,
+                          direction, CAST(alpha_amount AS TEXT), occurred_at, source
+                   FROM trade_events""",
+            ),
+            (
+                "reconciliations",
+                "previous_alpha",
+                """CREATE TABLE reconciliations_new (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    reconciliation_date TEXT NOT NULL,
+                    wallet_address TEXT NOT NULL,
+                    netuid INTEGER NOT NULL,
+                    previous_alpha TEXT NOT NULL,
+                    current_alpha TEXT NOT NULL,
+                    gross_growth_alpha TEXT NOT NULL,
+                    net_trade_adjustment_alpha TEXT NOT NULL,
+                    net_transfers_alpha TEXT NOT NULL,
+                    net_manual_stake_alpha TEXT NOT NULL,
+                    estimated_staking_earned_alpha TEXT NOT NULL,
+                    notes TEXT,
+                    created_at TEXT NOT NULL,
+                    UNIQUE (reconciliation_date, wallet_address, netuid)
+                )""",
+                """INSERT INTO reconciliations_new
+                   SELECT id, reconciliation_date, wallet_address, netuid,
+                          CAST(previous_alpha AS TEXT), CAST(current_alpha AS TEXT),
+                          CAST(gross_growth_alpha AS TEXT), CAST(net_trade_adjustment_alpha AS TEXT),
+                          CAST(net_transfers_alpha AS TEXT), CAST(net_manual_stake_alpha AS TEXT),
+                          CAST(estimated_staking_earned_alpha AS TEXT), notes, created_at
+                   FROM reconciliations""",
+            ),
+            (
+                "harvest_plans",
+                "planned_harvest_alpha",
+                """CREATE TABLE harvest_plans_new (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    plan_date TEXT NOT NULL,
+                    wallet_address TEXT NOT NULL,
+                    planned_harvest_alpha TEXT NOT NULL,
+                    estimated_tao_out TEXT NOT NULL,
+                    harvest_fraction TEXT NOT NULL,
+                    min_harvest_alpha TEXT NOT NULL,
+                    state TEXT NOT NULL,
+                    reason TEXT,
+                    dry_run INTEGER NOT NULL,
+                    created_at TEXT NOT NULL,
+                    UNIQUE (plan_date, wallet_address, dry_run)
+                )""",
+                """INSERT INTO harvest_plans_new
+                   SELECT id, plan_date, wallet_address,
+                          CAST(planned_harvest_alpha AS TEXT), CAST(estimated_tao_out AS TEXT),
+                          CAST(harvest_fraction AS TEXT), CAST(min_harvest_alpha AS TEXT),
+                          state, reason, dry_run, created_at
+                   FROM harvest_plans""",
+            ),
+            (
+                "transfer_batches",
+                "tao_amount",
+                """CREATE TABLE transfer_batches_new (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    batch_date TEXT NOT NULL,
+                    wallet_address TEXT NOT NULL,
+                    destination_address TEXT NOT NULL,
+                    tao_amount TEXT NOT NULL,
+                    state TEXT NOT NULL,
+                    reason TEXT,
+                    dry_run INTEGER NOT NULL,
+                    tx_hash TEXT,
+                    created_at TEXT NOT NULL,
+                    UNIQUE (batch_date, wallet_address, destination_address, dry_run)
+                )""",
+                """INSERT INTO transfer_batches_new
+                   SELECT id, batch_date, wallet_address, destination_address,
+                          CAST(tao_amount AS TEXT), state, reason, dry_run, tx_hash, created_at
+                   FROM transfer_batches""",
+            ),
+        ]
+
+        for table, sentinel_col, create_sql, copy_sql in _MIGRATIONS:
+            col_info = {
+                str(row["name"]): str(row["type"])
+                for row in self.conn.execute(f"PRAGMA table_info({table})").fetchall()
+            }
+            if col_info.get(sentinel_col, "").upper() != "REAL":
+                # Already migrated or table doesn't exist yet
+                continue
+            new_table = f"{table}_new"
+            self.conn.execute(f"DROP TABLE IF EXISTS {new_table}")
+            self.conn.execute(create_sql)
+            self.conn.execute(copy_sql)
+            self.conn.execute(f"DROP TABLE {table}")
+            self.conn.execute(f"ALTER TABLE {new_table} RENAME TO {table}")
 
     def get_or_create_run(self, run_date: date, workflow_name: str, tier: str, dry_run: bool) -> int:
         row = self.conn.execute(
@@ -91,6 +266,17 @@ class SQLiteRepository:
         )
         self.conn.commit()
 
+    def mark_run_manual_intervention_required(self, run_id: int, error_message: str) -> None:
+        self.conn.execute(
+            """
+            UPDATE runs
+            SET status = ?, completed_at = ?, error_message = ?
+            WHERE id = ?
+            """,
+            (RunStatus.MANUAL_INTERVENTION_REQUIRED.value, self._utc_now().isoformat(), error_message, run_id),
+        )
+        self.conn.commit()
+
     def stage_completed(self, run_id: int, stage_name: str, stage_key: str = "default") -> bool:
         row = self.conn.execute(
             """
@@ -125,8 +311,8 @@ class SQLiteRepository:
                 snapshot.snapshot_date.isoformat(),
                 snapshot.wallet_address,
                 snapshot.netuid,
-                snapshot.alpha_balance,
-                snapshot.tao_per_alpha,
+                str(snapshot.alpha_balance),
+                str(snapshot.tao_per_alpha) if snapshot.tao_per_alpha is not None else None,
                 snapshot.source,
                 snapshot.observed_at.isoformat(),
                 self._utc_now().isoformat(),
@@ -147,7 +333,7 @@ class SQLiteRepository:
                 transfer.wallet_address,
                 transfer.netuid,
                 transfer.direction,
-                transfer.alpha_amount,
+                str(transfer.alpha_amount),
                 transfer.occurred_at.isoformat(),
                 transfer.source,
             ),
@@ -167,7 +353,7 @@ class SQLiteRepository:
                 event.wallet_address,
                 event.netuid,
                 event.action,
-                event.alpha_amount,
+                str(event.alpha_amount),
                 event.occurred_at.isoformat(),
                 event.source,
             ),
@@ -187,7 +373,7 @@ class SQLiteRepository:
                 trade.wallet_address,
                 trade.netuid,
                 trade.direction,
-                trade.alpha_amount,
+                str(trade.alpha_amount),
                 trade.occurred_at.isoformat(),
                 trade.source,
             ),
@@ -333,13 +519,13 @@ class SQLiteRepository:
                 result.reconciliation_date.isoformat(),
                 result.wallet_address,
                 result.netuid,
-                result.previous_alpha,
-                result.current_alpha,
-                result.gross_growth_alpha,
-                result.net_trade_adjustment_alpha,
-                result.net_transfers_alpha,
-                result.net_manual_stake_alpha,
-                result.estimated_staking_earned_alpha,
+                str(result.previous_alpha),
+                str(result.current_alpha),
+                str(result.gross_growth_alpha),
+                str(result.net_trade_adjustment_alpha),
+                str(result.net_transfers_alpha),
+                str(result.net_manual_stake_alpha),
+                str(result.estimated_staking_earned_alpha),
                 result.notes,
                 self._utc_now().isoformat(),
             ),
@@ -363,10 +549,10 @@ class SQLiteRepository:
             (
                 plan.plan_date.isoformat(),
                 plan.wallet_address,
-                plan.planned_harvest_alpha,
-                plan.estimated_tao_out,
-                plan.harvest_fraction,
-                plan.min_harvest_alpha,
+                str(plan.planned_harvest_alpha),
+                str(plan.estimated_tao_out),
+                str(plan.harvest_fraction),
+                str(plan.min_harvest_alpha),
                 plan.state,
                 plan.reason,
                 int(plan.dry_run),
@@ -388,7 +574,7 @@ class SQLiteRepository:
                 batch.batch_date.isoformat(),
                 batch.wallet_address,
                 batch.destination_address,
-                batch.tao_amount,
+                str(batch.tao_amount),
                 batch.state,
                 batch.reason,
                 int(batch.dry_run),

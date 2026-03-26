@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 
 class TaostatsHttpAdapter(TaostatsIngestionPort):
     CANONICAL_AMOUNT_UNIT = "alpha"
-    DEFAULT_RETRIES = 12
+    DEFAULT_RETRIES = 3  # spec Section 21: retry attempts MUST NOT exceed 3
     DEFAULT_MAX_WAIT_SEC = 90.0
     POST_429_PAGE_DELAY_SEC = 12.0
 
@@ -55,7 +55,7 @@ class TaostatsHttpAdapter(TaostatsIngestionPort):
         self,
         path: str,
         params: dict[str, Any],
-        retries: int = DEFAULT_RETRIES,
+        retries: int = 3,
         max_wait_sec: float = DEFAULT_MAX_WAIT_SEC,
     ) -> dict[str, Any]:
         for attempt in range(retries + 1):
