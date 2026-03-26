@@ -9,6 +9,7 @@ from typing import Any, Mapping, Protocol
 
 from dotenv import load_dotenv
 
+from v2.tao_harvester.adapters.opentensor_sdk_staker import OpenTensorSdkConfig, OpenTensorSdkStaker
 from v2.tao_harvester.adapters.taostats.http import TaostatsHttpAdapter
 from v2.tao_harvester.config.app_config import AppConfig
 from v2.tao_harvester.modules.sync_openclaw_db import fetch_remote_db, validate_local_db
@@ -237,6 +238,21 @@ def require_openclaw_db_sync_for_execution(
     return report
 
 
+def build_staker_for_execution(config: AppConfig) -> OpenTensorStakingPort:
+    backend = (config.opentensor_staker_backend or "noop").strip().lower()
+    if backend == "noop":
+        return NoopOpenTensorStaker()
+    if backend == "local_sdk":
+        return OpenTensorSdkStaker(
+            OpenTensorSdkConfig(
+                network=config.opentensor_network,
+                wallet_name=config.opentensor_wallet_name,
+                wallet_hotkey=config.opentensor_wallet_hotkey,
+            )
+        )
+    raise ValueError(f"unsupported OPENTENSOR_STAKER_BACKEND: {config.opentensor_staker_backend}")
+
+
 def build_output_payload(
     input_path: str,
     report_date: str,
@@ -279,12 +295,16 @@ def main() -> int:
     report_date = str(payload.get("report_date") or "unknown")
 
     requests = build_unstake_requests(payload)
-    staker = NoopOpenTensorStaker()
+    staker: OpenTensorStakingPort = NoopOpenTensorStaker()
+    config: AppConfig | None = None
+    if args.execute:
+        config = AppConfig.from_env()
+        staker = build_staker_for_execution(config)
     results = run_staking_requests(requests, execute=args.execute, staker=staker)
     verifier: StakeStateVerifierPort | None = None
     db_sync_report: dict[str, object] | None = None
     if args.execute:
-        config = AppConfig.from_env()
+        assert config is not None
         expected_db_date = args.expected_db_date or (report_date if report_date != "unknown" else None)
         db_sync_report = require_openclaw_db_sync_for_execution(
             execute=args.execute,

@@ -76,6 +76,21 @@ Execution-only DB sync gate options:
 
 The output payload includes `db_sync_report` for audit traceability.
 
+### Tier 3 Unstake Backend
+
+Execution backend is controlled by `OPENTENSOR_STAKER_BACKEND`:
+
+- `noop` (default, fail-closed)
+- `local_sdk` (uses local bittensor SDK wallet + subtensor submission)
+
+When using `local_sdk`, configure:
+
+- `OPENTENSOR_NETWORK` (default `finney`)
+- `OPENTENSOR_WALLET_NAME`
+- `OPENTENSOR_WALLET_HOTKEY`
+
+`--execute` still requires explicit confirmation token and DB sync validation gate.
+
 ## OpenClaw Handoff Config (Local Tier 3)
 
 Use local `.env` values to pull handoff files from your OpenClaw VPS over SSH:

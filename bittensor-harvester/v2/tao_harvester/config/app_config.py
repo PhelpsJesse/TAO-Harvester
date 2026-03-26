@@ -38,6 +38,10 @@ class AppConfig:
     kraken_deposit_whitelist: tuple[str, ...]
     rules: HarvestRules
     openclaw_handoff: OpenClawHandoffConfig = field(default_factory=OpenClawHandoffConfig)
+    opentensor_staker_backend: str = "noop"
+    opentensor_network: str = "finney"
+    opentensor_wallet_name: str = "default"
+    opentensor_wallet_hotkey: str = "default"
     default_dry_run: bool = True
     catchup_missed_days: bool = True
 
@@ -68,6 +72,10 @@ class AppConfig:
                 remote_db_path=os.getenv("OPENCLAW_DB_REMOTE_PATH", "/opt/harvester/data/harvester_v2.db"),
                 local_db_path=os.getenv("OPENCLAW_DB_LOCAL_PATH", "v2/data/openclaw_latest.db"),
             ),
+            opentensor_staker_backend=os.getenv("OPENTENSOR_STAKER_BACKEND", "noop"),
+            opentensor_network=os.getenv("OPENTENSOR_NETWORK", "finney"),
+            opentensor_wallet_name=os.getenv("OPENTENSOR_WALLET_NAME", "default"),
+            opentensor_wallet_hotkey=os.getenv("OPENTENSOR_WALLET_HOTKEY", "default"),
             default_dry_run=os.getenv("DRY_RUN", "true").lower() == "true",
             catchup_missed_days=os.getenv("CATCHUP_MISSED_DAYS", "true").lower() == "true",
         )

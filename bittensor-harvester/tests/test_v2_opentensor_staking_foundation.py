@@ -4,6 +4,7 @@ from unittest.mock import patch
 
 from v2.tao_harvester.modules.opentensor_staking_foundation import (
     REQUIRED_EXECUTION_CONFIRMATION,
+    build_staker_for_execution,
     build_unstake_requests,
     require_openclaw_db_sync_for_execution,
     run_staking_requests_with_verification,
@@ -174,6 +175,31 @@ class TestOpenTensorStakingFoundation(unittest.TestCase):
 
         mock_fetch.assert_not_called()
         mock_validate.assert_called_once()
+
+    def test_build_staker_backend_defaults_to_noop(self):
+        config = AppConfig.from_env()
+        staker = build_staker_for_execution(config)
+        self.assertIsInstance(staker, NoopOpenTensorStaker)
+
+    def test_build_staker_backend_rejects_unknown_backend(self):
+        base = AppConfig.from_env()
+        custom = AppConfig(
+            db_path=base.db_path,
+            taostats_base_url=base.taostats_base_url,
+            harvester_address=base.harvester_address,
+            kraken_deposit_whitelist=base.kraken_deposit_whitelist,
+            rules=base.rules,
+            openclaw_handoff=base.openclaw_handoff,
+            opentensor_staker_backend="bogus",
+            opentensor_network=base.opentensor_network,
+            opentensor_wallet_name=base.opentensor_wallet_name,
+            opentensor_wallet_hotkey=base.opentensor_wallet_hotkey,
+            default_dry_run=base.default_dry_run,
+            catchup_missed_days=base.catchup_missed_days,
+        )
+
+        with self.assertRaises(ValueError):
+            build_staker_for_execution(custom)
 
 
 if __name__ == "__main__":
