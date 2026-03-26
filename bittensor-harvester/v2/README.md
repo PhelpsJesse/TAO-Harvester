@@ -13,6 +13,16 @@ Modular refactor with risk-tier separation.
 
 ## Run
 
+For a Windows desktop launcher (no command line required), double-click:
+
+`launch_tao_harvester_operator.bat`
+
+This opens a local operator GUI that can:
+
+- pull + validate the latest OpenClaw DB,
+- preview per-subnet destake requests from a `v2_calculate_harvest_*.json` file,
+- execute the destake workflow with the same DB sync gate and confirmation token used by the CLI.
+
 From project root:
 
 ```powershell

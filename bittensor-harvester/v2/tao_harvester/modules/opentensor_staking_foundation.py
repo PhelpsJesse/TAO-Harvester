@@ -283,37 +283,45 @@ def build_output_payload(
     }
 
 
-def main() -> int:
-    load_dotenv(override=True)
-    parser = build_parser()
-    args = parser.parse_args()
+def execute_staking_workflow(
+    *,
+    input_path: str,
+    execute: bool,
+    output_path: str | None = None,
+    confirmation: str | None = None,
+    skip_db_sync_fetch: bool = False,
+    expected_db_date: str | None = None,
+    max_db_staleness_days: int = 1,
+    min_db_snapshots: int = 1,
+    min_db_reconciliations: int = 1,
+) -> tuple[dict[str, object], Path]:
+    validate_execution_confirmation(execute, confirmation)
 
-    validate_execution_confirmation(args.execute, args.confirm_execution)
-
-    input_path = Path(args.input)
-    payload = json.loads(input_path.read_text(encoding="utf-8"))
+    input_file = Path(input_path)
+    payload = json.loads(input_file.read_text(encoding="utf-8"))
     report_date = str(payload.get("report_date") or "unknown")
 
     requests = build_unstake_requests(payload)
     staker: OpenTensorStakingPort = NoopOpenTensorStaker()
     config: AppConfig | None = None
-    if args.execute:
+    if execute:
         config = AppConfig.from_env()
         staker = build_staker_for_execution(config)
-    results = run_staking_requests(requests, execute=args.execute, staker=staker)
+
+    results = run_staking_requests(requests, execute=execute, staker=staker)
     verifier: StakeStateVerifierPort | None = None
     db_sync_report: dict[str, object] | None = None
-    if args.execute:
+    if execute:
         assert config is not None
-        expected_db_date = args.expected_db_date or (report_date if report_date != "unknown" else None)
+        resolved_expected_db_date = expected_db_date or (report_date if report_date != "unknown" else None)
         db_sync_report = require_openclaw_db_sync_for_execution(
-            execute=args.execute,
+            execute=execute,
             config=config,
-            skip_fetch=args.skip_db_sync_fetch,
-            expected_db_date=expected_db_date,
-            max_db_staleness_days=args.max_db_staleness_days,
-            min_db_snapshots=args.min_db_snapshots,
-            min_db_reconciliations=args.min_db_reconciliations,
+            skip_fetch=skip_db_sync_fetch,
+            expected_db_date=resolved_expected_db_date,
+            max_db_staleness_days=max_db_staleness_days,
+            min_db_snapshots=min_db_snapshots,
+            min_db_reconciliations=min_db_reconciliations,
         )
         if not config.harvester_address:
             raise ValueError("HARVESTER_WALLET_ADDRESS must be set for execution verification")
@@ -324,25 +332,43 @@ def main() -> int:
         )
     attempts = run_staking_requests_with_verification(
         requests=requests,
-        execute=args.execute,
+        execute=execute,
         staker=staker,
         verifier=verifier,
     )
 
-    output_path = args.output or f"reports/v2_opentensor_staking_foundation_{report_date}.json"
-    output_file = Path(output_path)
+    resolved_output_path = output_path or f"reports/v2_opentensor_staking_foundation_{report_date}.json"
+    output_file = Path(resolved_output_path)
     output_file.parent.mkdir(parents=True, exist_ok=True)
 
     output_payload = build_output_payload(
-        input_path=input_path.as_posix(),
+        input_path=input_file.as_posix(),
         report_date=report_date,
-        execute=args.execute,
+        execute=execute,
         requests=requests,
         results=results,
         attempts=attempts,
         db_sync_report=db_sync_report,
     )
     output_file.write_text(json.dumps(output_payload, indent=2), encoding="utf-8")
+    return output_payload, output_file
+
+
+def main() -> int:
+    load_dotenv(override=True)
+    parser = build_parser()
+    args = parser.parse_args()
+    output_payload, output_file = execute_staking_workflow(
+        input_path=args.input,
+        execute=args.execute,
+        output_path=args.output,
+        confirmation=args.confirm_execution,
+        skip_db_sync_fetch=args.skip_db_sync_fetch,
+        expected_db_date=args.expected_db_date,
+        max_db_staleness_days=args.max_db_staleness_days,
+        min_db_snapshots=args.min_db_snapshots,
+        min_db_reconciliations=args.min_db_reconciliations,
+    )
 
     print("opentensor-staking-foundation complete")
     print(f"output_path={output_file.as_posix()}")
