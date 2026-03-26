@@ -20,3 +20,8 @@ v2/data/
 .DS_Store
 Thumbs.db
 .vscode/.ropeproject/
+
+# Local secrets
+.env
+.env.*
+!.env.example
