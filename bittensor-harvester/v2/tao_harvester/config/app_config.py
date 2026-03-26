@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date
 import os
 
@@ -15,12 +15,29 @@ class HarvestRules:
 
 
 @dataclass(frozen=True)
+class OpenClawHandoffConfig:
+    ssh_host: str = ""
+    ssh_port: int = 22
+    ssh_user: str = ""
+    ssh_key_path: str = ""
+    remote_handoff_dir: str = "/opt/harvester/handoff"
+    local_handoff_dir: str = "handoff"
+    remote_db_path: str = "/opt/harvester/data/harvester_v2.db"
+    local_db_path: str = "v2/data/openclaw_latest.db"
+
+    @property
+    def configured(self) -> bool:
+        return bool(self.ssh_host and self.ssh_user and self.ssh_key_path)
+
+
+@dataclass(frozen=True)
 class AppConfig:
     db_path: str
     taostats_base_url: str
     harvester_address: str
     kraken_deposit_whitelist: tuple[str, ...]
     rules: HarvestRules
+    openclaw_handoff: OpenClawHandoffConfig = field(default_factory=OpenClawHandoffConfig)
     default_dry_run: bool = True
     catchup_missed_days: bool = True
 
@@ -41,6 +58,16 @@ class AppConfig:
             harvester_address=os.getenv("HARVESTER_WALLET_ADDRESS", ""),
             kraken_deposit_whitelist=whitelist,
             rules=rules,
+            openclaw_handoff=OpenClawHandoffConfig(
+                ssh_host=os.getenv("OPENCLAW_SSH_HOST", ""),
+                ssh_port=int(os.getenv("OPENCLAW_SSH_PORT", "22")),
+                ssh_user=os.getenv("OPENCLAW_SSH_USER", ""),
+                ssh_key_path=os.getenv("OPENCLAW_SSH_KEY_PATH", ""),
+                remote_handoff_dir=os.getenv("OPENCLAW_HANDOFF_REMOTE_DIR", "/opt/harvester/handoff"),
+                local_handoff_dir=os.getenv("OPENCLAW_HANDOFF_LOCAL_DIR", "handoff"),
+                remote_db_path=os.getenv("OPENCLAW_DB_REMOTE_PATH", "/opt/harvester/data/harvester_v2.db"),
+                local_db_path=os.getenv("OPENCLAW_DB_LOCAL_PATH", "v2/data/openclaw_latest.db"),
+            ),
             default_dry_run=os.getenv("DRY_RUN", "true").lower() == "true",
             catchup_missed_days=os.getenv("CATCHUP_MISSED_DAYS", "true").lower() == "true",
         )
